@@ -5,6 +5,11 @@ import * as rlp from 'rlp';
 import * as secp from '@noble/secp256k1';
 import { RideRequestArgs, Signature } from './types';
 
+/** Strip 0x/0X prefix - hex parsers (e.g. @noble/secp256k1) do not accept it. Exported for consumers. */
+export function stripHexPrefix(hex: string): string {
+  return hex.replace(/^0x/i, '');
+}
+
 // Expose Buffer to browser contexts
 declare global {
   interface Window { Buffer: typeof Buffer }
@@ -146,7 +151,7 @@ export class ClutchHubSdk {
 
     // RLP-encode unsigned transaction [from, nonce, data]
     // Ensure from field is properly encoded as string (remove 0x prefix for consistency)
-    const fromForUnsigned = unsignedTx.from.replace(/^0x/, '');
+    const fromForUnsigned = stripHexPrefix(unsignedTx.from);
     const unsignedPayload = rlp.encode([
       fromForUnsigned,
       unsignedTx.nonce,
@@ -157,12 +162,12 @@ export class ClutchHubSdk {
 
     // Sign the transaction hash
     const signature = await this.signHash(rawHashHex, privateKey);
-    const rNo0x = signature.r.replace(/^0x/, '');
-    const sNo0x = signature.s.replace(/^0x/, '');
+    const rNo0x = stripHexPrefix(signature.r);
+    const sNo0x = stripHexPrefix(signature.s);
 
     // RLP-encode full signed transaction to match Rust: [from, nonce, r, s, v, hash, data]
     // Ensure from field is properly encoded as string (remove 0x prefix for consistency)
-    const fromNo0x = unsignedTx.from.replace(/^0x/, '');
+    const fromNo0x = stripHexPrefix(unsignedTx.from);
     const fullPayload = rlp.encode([
       fromNo0x,
       unsignedTx.nonce,
@@ -204,8 +209,9 @@ export class ClutchHubSdk {
     hashHex: string,
     privateKey: string
   ): Promise<Signature> {
-    const hashBuffer = Buffer.from(hashHex.replace(/^0x/, ''), 'hex');
-    const sig = await secp.signAsync(hashBuffer, privateKey);
+    const hashBuffer = Buffer.from(stripHexPrefix(hashHex), 'hex');
+    const privKeyClean = stripHexPrefix(privateKey);
+    const sig = await secp.signAsync(hashBuffer, privKeyClean);
     const r = sig.r.toString(16).padStart(64, '0');
     const s = sig.s.toString(16).padStart(64, '0');
     const v = (typeof sig.recovery === 'number' ? sig.recovery : 0) + 27;
