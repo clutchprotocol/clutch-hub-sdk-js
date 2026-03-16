@@ -1,3 +1,10 @@
+## [1.4.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.3.0...v1.4.0) (2026-03-16)
+
+
+### Features
+
+* **sdk:** add stripHexPrefix utility function and refactor hex handling in transaction signing ([4365203](https://github.com/clutchprotocol/clutch-hub-sdk-js/commit/43652033701e963a85d2e4966402e02b5201617f))
+
 ## [1.3.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.2.0...v1.3.0) (2025-08-23)
 
 
