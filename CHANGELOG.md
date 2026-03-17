@@ -1,3 +1,10 @@
+## [1.5.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.4.0...v1.5.0) (2026-03-17)
+
+
+### Features
+
+* **sdk:** add getAccountBalance method to fetch current account balance for a public key ([58d9642](https://github.com/clutchprotocol/clutch-hub-sdk-js/commit/58d9642d553f9c19bfd3cb71dad44d04705737b1))
+
 ## [1.4.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.3.0...v1.4.0) (2026-03-16)
 
 
