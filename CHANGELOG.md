@@ -1,3 +1,10 @@
+## [1.6.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.5.0...v1.6.0) (2026-03-17)
+
+
+### Features
+
+* **sdk:** add listRideRequests method to fetch available ride requests with optional map bounds filtering ([4c05d48](https://github.com/clutchprotocol/clutch-hub-sdk-js/commit/4c05d488f13eb64e7789fa9943d668339b43680a))
+
 ## [1.5.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.4.0...v1.5.0) (2026-03-17)
 
 
