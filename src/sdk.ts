@@ -3,7 +3,7 @@ import { Buffer } from 'buffer';
 import { keccak_256 } from '@noble/hashes/sha3';
 import * as rlp from 'rlp';
 import * as secp from '@noble/secp256k1';
-import { RideRequestArgs, Signature } from './types';
+import { AvailableRideRequest, MapBounds, RideRequestArgs, Signature } from './types';
 
 /** Strip 0x/0X prefix - hex parsers (e.g. @noble/secp256k1) do not accept it. Exported for consumers. */
 export function stripHexPrefix(hex: string): string {
@@ -200,6 +200,30 @@ export class ClutchHubSdk {
       sendRawTransaction: string;
     }>(query, { raw_transaction: rawTransaction });
     return result.sendRawTransaction;
+  }
+
+  /**
+   * Lists available ride requests (not yet accepted by a driver).
+   * Optionally filter by map bounds to show only requests in the visible viewport.
+   * @param bounds Optional map bounds { minLat, maxLat, minLng, maxLng }
+   * @returns Array of available ride requests
+   */
+  public async listRideRequests(bounds?: MapBounds | null): Promise<AvailableRideRequest[]> {
+    const query = `
+      query ListRideRequests($bounds: MapBoundsInput) {
+        listRideRequests(bounds: $bounds) {
+          txHash
+          pickupLocation { latitude longitude }
+          dropoffLocation { latitude longitude }
+          fare
+          passengerAddress
+        }
+      }
+    `;
+    const result = await this.executeGraphQL<{
+      listRideRequests: AvailableRideRequest[];
+    }>(query, { bounds: bounds ?? null });
+    return result.listRideRequests;
   }
 
   /**
