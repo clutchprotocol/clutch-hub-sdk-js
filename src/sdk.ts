@@ -203,6 +203,22 @@ export class ClutchHubSdk {
   }
 
   /**
+   * Fetches the current account balance for a public key.
+   */
+  public async getAccountBalance(publicKey?: string): Promise<number> {
+    await this.ensureAuth();
+    const query = `
+      query AccountBalance($publicKey: String) {
+        accountBalance(publicKey: $publicKey)
+      }
+    `;
+    const result = await this.executeGraphQL<{
+      accountBalance: number;
+    }>(query, { publicKey: publicKey ?? this.publicKey });
+    return result.accountBalance;
+  }
+
+  /**
    * Signs a hex-encoded hash.
    */
   private async signHash(
