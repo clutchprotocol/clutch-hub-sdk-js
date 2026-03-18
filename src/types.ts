@@ -36,6 +36,14 @@ export interface AvailableRideRequest {
   passengerAddress: string;
 }
 
+/** A ride offer from a driver for a specific request. */
+export interface AvailableRideOffer {
+  txHash: string;
+  rideRequestTxHash: string;
+  fare: number;
+  driverAddress: string;
+}
+
 export interface Signature {
   r: string;
   s: string;

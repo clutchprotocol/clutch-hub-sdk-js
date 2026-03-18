@@ -3,7 +3,7 @@ import { Buffer } from 'buffer';
 import { keccak_256 } from '@noble/hashes/sha3';
 import * as rlp from 'rlp';
 import * as secp from '@noble/secp256k1';
-import { AvailableRideRequest, MapBounds, RideRequestArgs, RideOfferArgs, Signature } from './types';
+import { AvailableRideRequest, AvailableRideOffer, MapBounds, RideRequestArgs, RideOfferArgs, Signature } from './types';
 
 /** Strip 0x/0X prefix - hex parsers (e.g. @noble/secp256k1) do not accept it. Exported for consumers. */
 export function stripHexPrefix(hex: string): string {
@@ -173,7 +173,7 @@ export class ClutchHubSdk {
   public async signTransaction(
     unsignedTx: UnsignedTransaction,
     privateKey: string
-  ): Promise<Signature & { rawTransaction: string }> {
+  ): Promise<Signature & { rawTransaction: string, txHash: string }> {
     // Encode the function call into a nested array for RLP
     const callDataArray = this.encodeFunctionCall(unsignedTx.data);
 
@@ -208,7 +208,8 @@ export class ClutchHubSdk {
 
     return {
       ...signature,
-      rawTransaction: '0x' + Buffer.from(fullPayload).toString('hex')
+      rawTransaction: '0x' + Buffer.from(fullPayload).toString('hex'),
+      txHash: '0x' + rawHashHex
     };
   }
 
@@ -252,6 +253,28 @@ export class ClutchHubSdk {
       listRideRequests: AvailableRideRequest[];
     }>(query, { bounds: bounds ?? null });
     return result.listRideRequests;
+  }
+
+  /**
+   * Lists ride offers for a specific ride request.
+   * @param rideRequestTxHash The transaction hash of the ride request
+   * @returns Array of available ride offers
+   */
+  public async listRideOffers(rideRequestTxHash: string): Promise<AvailableRideOffer[]> {
+    const query = `
+      query ListRideOffers($rideRequestTxHash: String!) {
+        listRideOffers(rideRequestTxHash: $rideRequestTxHash) {
+          txHash
+          rideRequestTxHash
+          fare
+          driverAddress
+        }
+      }
+    `;
+    const result = await this.executeGraphQL<{
+      listRideOffers: AvailableRideOffer[];
+    }>(query, { rideRequestTxHash });
+    return result.listRideOffers;
   }
 
   /**
