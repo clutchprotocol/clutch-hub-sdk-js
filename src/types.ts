@@ -14,6 +14,11 @@ export interface RideRequestArgs {
   fare: number;
 }
 
+export interface RideOfferArgs {
+  rideRequestTxHash: string;
+  fare: number;
+}
+
 /** Map viewport bounds for filtering ride requests by pickup location. */
 export interface MapBounds {
   minLat: number;
