@@ -1,3 +1,10 @@
+## [1.7.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.6.0...v1.7.0) (2026-03-18)
+
+
+### Features
+
+* **sdk:** add createUnsignedRideOffer method to fetch unsigned ride offers from the GraphQL API ([8351902](https://github.com/clutchprotocol/clutch-hub-sdk-js/commit/83519026be3fddaf2f47c11ab052cfb3cc79c726))
+
 ## [1.6.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.5.0...v1.6.0) (2026-03-17)
 
 
