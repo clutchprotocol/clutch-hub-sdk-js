@@ -4,7 +4,8 @@
 ![Experimental](https://img.shields.io/badge/stage-experimental-red.svg)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=flat&logo=typescript&logoColor=white)
-![npm](https://img.shields.io/badge/npm-CB3837?style=flat&logo=npm&logoColor=white)
+[![npm](https://img.shields.io/npm/v/clutch-hub-sdk-js.svg)](https://www.npmjs.com/package/clutch-hub-sdk-js)
+[![npm downloads](https://img.shields.io/npm/dm/clutch-hub-sdk-js.svg)](https://www.npmjs.com/package/clutch-hub-sdk-js)
 
 > ⚠️ **ALPHA SOFTWARE** - This project is in active development and is considered experimental. Use at your own risk. APIs may change without notice.
 
