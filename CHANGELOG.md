@@ -1,3 +1,10 @@
+## [1.8.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.7.0...v1.8.0) (2026-03-18)
+
+
+### Features
+
+* **sdk:** add listRideOffers method to fetch available ride offers for a specific ride request ([c00de84](https://github.com/clutchprotocol/clutch-hub-sdk-js/commit/c00de84d648b7b5c2ea6afddf9defee952951ac1))
+
 ## [1.7.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.6.0...v1.7.0) (2026-03-18)
 
 
