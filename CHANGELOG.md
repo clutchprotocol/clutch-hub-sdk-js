@@ -1,3 +1,10 @@
+## [1.10.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.9.0...v1.10.0) (2026-03-19)
+
+
+### Features
+
+* **sdk:** add listActiveTrips method to fetch active trips in progress ([5af3863](https://github.com/clutchprotocol/clutch-hub-sdk-js/commit/5af3863e44e7df768fe010501fb92b91ee66b96d))
+
 ## [1.9.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.8.0...v1.9.0) (2026-03-19)
 
 
