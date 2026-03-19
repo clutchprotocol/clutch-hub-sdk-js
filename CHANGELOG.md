@@ -1,3 +1,10 @@
+## [1.11.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.10.0...v1.11.0) (2026-03-19)
+
+
+### Features
+
+* **sdk:** add createUnsignedRidePay method and normalize transaction hash handling ([e895918](https://github.com/clutchprotocol/clutch-hub-sdk-js/commit/e895918d227be26106372dfe3b06f07e2b2f1350))
+
 ## [1.10.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.9.0...v1.10.0) (2026-03-19)
 
 
