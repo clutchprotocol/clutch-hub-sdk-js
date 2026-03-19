@@ -3,7 +3,7 @@ import { Buffer } from 'buffer';
 import { keccak_256 } from '@noble/hashes/sha3';
 import * as rlp from 'rlp';
 import * as secp from '@noble/secp256k1';
-import { AvailableRideRequest, AvailableRideOffer, MapBounds, RideRequestArgs, RideOfferArgs, RideAcceptanceArgs, Signature } from './types';
+import { AvailableRideRequest, AvailableRideOffer, AvailableActiveTrip, MapBounds, RideRequestArgs, RideOfferArgs, RideAcceptanceArgs, Signature } from './types';
 
 /** Strip 0x/0X prefix - hex parsers (e.g. @noble/secp256k1) do not accept it. Exported for consumers. */
 export function stripHexPrefix(hex: string): string {
@@ -297,6 +297,37 @@ export class ClutchHubSdk {
       listRideOffers: AvailableRideOffer[];
     }>(query, { rideRequestTxHash });
     return result.listRideOffers;
+  }
+
+  /**
+   * Lists active trips (ride accepted, in progress).
+   * Optionally filter by driver or passenger address.
+   */
+  public async listActiveTrips(options?: {
+    driverAddress?: string;
+    passengerAddress?: string;
+  }): Promise<AvailableActiveTrip[]> {
+    const query = `
+      query ListActiveTrips($driverAddress: String, $passengerAddress: String) {
+        listActiveTrips(driverAddress: $driverAddress, passengerAddress: $passengerAddress) {
+          txHash
+          rideOfferTxHash
+          rideRequestTxHash
+          pickupLocation { latitude longitude }
+          dropoffLocation { latitude longitude }
+          fare
+          driverAddress
+          passengerAddress
+        }
+      }
+    `;
+    const result = await this.executeGraphQL<{
+      listActiveTrips: AvailableActiveTrip[];
+    }>(query, {
+      driverAddress: options?.driverAddress ?? null,
+      passengerAddress: options?.passengerAddress ?? null,
+    });
+    return result.listActiveTrips;
   }
 
   /**

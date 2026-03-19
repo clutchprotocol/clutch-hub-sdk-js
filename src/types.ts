@@ -48,6 +48,18 @@ export interface AvailableRideOffer {
   driverAddress: string;
 }
 
+/** An active trip (ride accepted, in progress). */
+export interface AvailableActiveTrip {
+  txHash: string;
+  rideOfferTxHash: string;
+  rideRequestTxHash: string;
+  pickupLocation: Coordinates;
+  dropoffLocation: Coordinates;
+  fare: number;
+  driverAddress: string;
+  passengerAddress: string;
+}
+
 export interface Signature {
   r: string;
   s: string;
