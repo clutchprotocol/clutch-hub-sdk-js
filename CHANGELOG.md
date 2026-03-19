@@ -1,3 +1,10 @@
+## [1.12.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.11.0...v1.12.0) (2026-03-19)
+
+
+### Features
+
+* **sdk:** add listCompletedTrips method to fetch completed trips ([1339d07](https://github.com/clutchprotocol/clutch-hub-sdk-js/commit/1339d07eaa9b1cd5ac805e6864c8bb7a0031eb86))
+
 ## [1.11.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.10.0...v1.11.0) (2026-03-19)
 
 
