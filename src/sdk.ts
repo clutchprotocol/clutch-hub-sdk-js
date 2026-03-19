@@ -3,11 +3,32 @@ import { Buffer } from 'buffer';
 import { keccak_256 } from '@noble/hashes/sha3';
 import * as rlp from 'rlp';
 import * as secp from '@noble/secp256k1';
-import { AvailableRideRequest, AvailableRideOffer, AvailableActiveTrip, MapBounds, RideRequestArgs, RideOfferArgs, RideAcceptanceArgs, Signature } from './types';
+import { AvailableRideRequest, AvailableRideOffer, AvailableActiveTrip, MapBounds, RideRequestArgs, RideOfferArgs, RideAcceptanceArgs, RidePayArgs, Signature } from './types';
 
 /** Strip 0x/0X prefix - hex parsers (e.g. @noble/secp256k1) do not accept it. Exported for consumers. */
 export function stripHexPrefix(hex: string): string {
   return hex.replace(/^0x/i, '');
+}
+
+/**
+ * Prepare a tx hash for RLP: strip accidental JSON wrapping (legacy node stored `"0x…"` as a JSON string)
+ * and remove the `0x` prefix.
+ */
+export function normalizeTxHashForRlp(hex: string): string {
+  let s = String(hex).trim();
+  if (s.length >= 2 && s.startsWith('"') && s.endsWith('"')) {
+    try {
+      const parsed = JSON.parse(s);
+      if (typeof parsed === 'string') {
+        s = parsed;
+      } else {
+        s = s.slice(1, -1);
+      }
+    } catch {
+      s = s.slice(1, -1);
+    }
+  }
+  return stripHexPrefix(s);
 }
 
 // Expose Buffer to browser contexts
@@ -190,6 +211,32 @@ export class ClutchHubSdk {
   }
 
   /**
+   * Fetches an unsigned RidePay transaction. Passenger pays the driver in portions until the offer fare is covered.
+   */
+  public async createUnsignedRidePay(args: RidePayArgs): Promise<UnsignedTransaction> {
+    await this.ensureAuth();
+    const query = `
+      mutation CreateUnsignedRidePay(
+        $rideAcceptanceTransactionHash: String!,
+        $fare: Int!
+      ) {
+        createUnsignedRidePay(
+          rideAcceptanceTransactionHash: $rideAcceptanceTransactionHash,
+          fare: $fare
+        )
+      }
+    `;
+    const variables = {
+      rideAcceptanceTransactionHash: args.rideAcceptanceTxHash,
+      fare: args.fare,
+    };
+    const result = await this.executeGraphQL<{
+      createUnsignedRidePay: UnsignedTransaction;
+    }>(query, variables);
+    return result.createUnsignedRidePay;
+  }
+
+  /**
    * Signs a transaction and returns the signature and raw RLP-encoded payload.
    */
   public async signTransaction(
@@ -316,6 +363,7 @@ export class ClutchHubSdk {
           pickupLocation { latitude longitude }
           dropoffLocation { latitude longitude }
           fare
+          farePaid
           driverAddress
           passengerAddress
         }
@@ -390,14 +438,22 @@ export class ClutchHubSdk {
         const argsData = data.arguments || data;
         const rideRequestTxHash = argsData.ride_request_transaction_hash ?? argsData.rideRequestTxHash ?? '';
         const fare = argsData.fare ?? 0;
-        const args = [stripHexPrefix(String(rideRequestTxHash)), fare];
+        const args = [normalizeTxHashForRlp(String(rideRequestTxHash)), fare];
         return [2, args];
       }
       case 'RideAcceptance': {
         const argsData = data.arguments || data;
         const rideOfferTxHash = argsData.ride_offer_transaction_hash ?? argsData.rideOfferTxHash ?? '';
-        const args = [stripHexPrefix(String(rideOfferTxHash))];
+        const args = [normalizeTxHashForRlp(String(rideOfferTxHash))];
         return [3, args];
+      }
+      case 'RidePay': {
+        const argsData = data.arguments || data;
+        const rideAcceptanceTxHash =
+          argsData.ride_acceptance_transaction_hash ?? argsData.rideAcceptanceTxHash ?? '';
+        const fare = argsData.fare ?? 0;
+        const args = [normalizeTxHashForRlp(String(rideAcceptanceTxHash)), fare];
+        return [4, args];
       }
       default:
         throw new Error(`Unsupported FunctionCall type: ${type}`);

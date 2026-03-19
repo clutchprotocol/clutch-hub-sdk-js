@@ -23,6 +23,11 @@ export interface RideAcceptanceArgs {
   rideOfferTxHash: string;
 }
 
+export interface RidePayArgs {
+  rideAcceptanceTxHash: string;
+  fare: number;
+}
+
 /** Map viewport bounds for filtering ride requests by pickup location. */
 export interface MapBounds {
   minLat: number;
@@ -56,6 +61,8 @@ export interface AvailableActiveTrip {
   pickupLocation: Coordinates;
   dropoffLocation: Coordinates;
   fare: number;
+  /** Amount already paid to the driver (partial payments). */
+  farePaid: number;
   driverAddress: string;
   passengerAddress: string;
 }
