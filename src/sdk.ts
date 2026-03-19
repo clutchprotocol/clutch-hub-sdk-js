@@ -3,7 +3,7 @@ import { Buffer } from 'buffer';
 import { keccak_256 } from '@noble/hashes/sha3';
 import * as rlp from 'rlp';
 import * as secp from '@noble/secp256k1';
-import { AvailableRideRequest, AvailableRideOffer, MapBounds, RideRequestArgs, RideOfferArgs, Signature } from './types';
+import { AvailableRideRequest, AvailableRideOffer, MapBounds, RideRequestArgs, RideOfferArgs, RideAcceptanceArgs, Signature } from './types';
 
 /** Strip 0x/0X prefix - hex parsers (e.g. @noble/secp256k1) do not accept it. Exported for consumers. */
 export function stripHexPrefix(hex: string): string {
@@ -165,6 +165,28 @@ export class ClutchHubSdk {
       createUnsignedRideOffer: UnsignedTransaction
     }>(query, variables);
     return result.createUnsignedRideOffer;
+  }
+
+  /**
+   * Fetches an unsigned ride acceptance transaction from the GraphQL API.
+   * Passenger confirms a driver's offer for their ride request.
+   */
+  public async createUnsignedRideAcceptance(
+    args: RideAcceptanceArgs
+  ): Promise<UnsignedTransaction> {
+    await this.ensureAuth();
+    const query = `
+      mutation CreateUnsignedRideAcceptance($rideOfferTransactionHash: String!) {
+        createUnsignedRideAcceptance(rideOfferTransactionHash: $rideOfferTransactionHash)
+      }
+    `;
+    const variables = {
+      rideOfferTransactionHash: args.rideOfferTxHash,
+    };
+    const result = await this.executeGraphQL<{
+      createUnsignedRideAcceptance: UnsignedTransaction
+    }>(query, variables);
+    return result.createUnsignedRideAcceptance;
   }
 
   /**
@@ -339,6 +361,12 @@ export class ClutchHubSdk {
         const fare = argsData.fare ?? 0;
         const args = [stripHexPrefix(String(rideRequestTxHash)), fare];
         return [2, args];
+      }
+      case 'RideAcceptance': {
+        const argsData = data.arguments || data;
+        const rideOfferTxHash = argsData.ride_offer_transaction_hash ?? argsData.rideOfferTxHash ?? '';
+        const args = [stripHexPrefix(String(rideOfferTxHash))];
+        return [3, args];
       }
       default:
         throw new Error(`Unsupported FunctionCall type: ${type}`);
