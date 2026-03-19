@@ -1,3 +1,10 @@
+## [1.9.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.8.0...v1.9.0) (2026-03-19)
+
+
+### Features
+
+* **sdk:** add createUnsignedRideAcceptance method to fetch unsigned ride acceptance transactions from the GraphQL API ([aefdce2](https://github.com/clutchprotocol/clutch-hub-sdk-js/commit/aefdce2ffef841c0d94e8f39dc442561dade1b50))
+
 ## [1.8.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.7.0...v1.8.0) (2026-03-18)
 
 
