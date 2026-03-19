@@ -67,6 +67,9 @@ export interface AvailableActiveTrip {
   passengerAddress: string;
 }
 
+/** Completed trip (full fare paid); same payload as active trip from the API. */
+export type AvailableCompletedTrip = AvailableActiveTrip;
+
 export interface Signature {
   r: string;
   s: string;

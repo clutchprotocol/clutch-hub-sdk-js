@@ -3,7 +3,7 @@ import { Buffer } from 'buffer';
 import { keccak_256 } from '@noble/hashes/sha3';
 import * as rlp from 'rlp';
 import * as secp from '@noble/secp256k1';
-import { AvailableRideRequest, AvailableRideOffer, AvailableActiveTrip, MapBounds, RideRequestArgs, RideOfferArgs, RideAcceptanceArgs, RidePayArgs, Signature } from './types';
+import { AvailableRideRequest, AvailableRideOffer, AvailableActiveTrip, AvailableCompletedTrip, MapBounds, RideRequestArgs, RideOfferArgs, RideAcceptanceArgs, RidePayArgs, Signature } from './types';
 
 /** Strip 0x/0X prefix - hex parsers (e.g. @noble/secp256k1) do not accept it. Exported for consumers. */
 export function stripHexPrefix(hex: string): string {
@@ -376,6 +376,38 @@ export class ClutchHubSdk {
       passengerAddress: options?.passengerAddress ?? null,
     });
     return result.listActiveTrips;
+  }
+
+  /**
+   * Lists completed trips (accepted, full fare paid, not cancelled).
+   * Optionally filter by driver or passenger address.
+   */
+  public async listCompletedTrips(options?: {
+    driverAddress?: string;
+    passengerAddress?: string;
+  }): Promise<AvailableCompletedTrip[]> {
+    const query = `
+      query ListCompletedTrips($driverAddress: String, $passengerAddress: String) {
+        listCompletedTrips(driverAddress: $driverAddress, passengerAddress: $passengerAddress) {
+          txHash
+          rideOfferTxHash
+          rideRequestTxHash
+          pickupLocation { latitude longitude }
+          dropoffLocation { latitude longitude }
+          fare
+          farePaid
+          driverAddress
+          passengerAddress
+        }
+      }
+    `;
+    const result = await this.executeGraphQL<{
+      listCompletedTrips: AvailableCompletedTrip[];
+    }>(query, {
+      driverAddress: options?.driverAddress ?? null,
+      passengerAddress: options?.passengerAddress ?? null,
+    });
+    return result.listCompletedTrips;
   }
 
   /**
