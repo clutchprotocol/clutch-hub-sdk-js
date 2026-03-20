@@ -1,3 +1,10 @@
+## [1.13.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.12.0...v1.13.0) (2026-03-20)
+
+
+### Features
+
+* **sdk:** add GraphQL subscription methods for ride requests, offers, active trips, and completed trips ([5b0f3a2](https://github.com/clutchprotocol/clutch-hub-sdk-js/commit/5b0f3a26332e68165ed538ef179652e54c1fcdaa))
+
 ## [1.12.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.11.0...v1.12.0) (2026-03-19)
 
 
