@@ -3,7 +3,26 @@ import { Buffer } from 'buffer';
 import { keccak_256 } from '@noble/hashes/sha3';
 import * as rlp from 'rlp';
 import * as secp from '@noble/secp256k1';
-import { AvailableRideRequest, AvailableRideOffer, AvailableActiveTrip, AvailableCompletedTrip, MapBounds, RideRequestArgs, RideOfferArgs, RideAcceptanceArgs, RidePayArgs, Signature } from './types';
+import {
+  ACTIVE_TRIP_GQL_FIELDS,
+  createHubSubscriptionClient,
+  hubGraphqlWsUrl,
+  RIDE_OFFER_GQL_FIELDS,
+  RIDE_REQUEST_GQL_FIELDS,
+  type SubscriptionHandlers,
+} from './subscriptions';
+import {
+  AvailableRideRequest,
+  AvailableRideOffer,
+  AvailableActiveTrip,
+  AvailableCompletedTrip,
+  MapBounds,
+  RideRequestArgs,
+  RideOfferArgs,
+  RideAcceptanceArgs,
+  RidePayArgs,
+  Signature,
+} from './types';
 
 /** Strip 0x/0X prefix - hex parsers (e.g. @noble/secp256k1) do not accept it. Exported for consumers. */
 export function stripHexPrefix(hex: string): string {
@@ -83,6 +102,31 @@ export class ClutchHubSdk {
 
   private get authHeaders(): Record<string, string> {
     return this.token ? { Authorization: `Bearer ${this.token}` } : {};
+  }
+
+  /**
+   * WebSocket URL for GraphQL subscriptions (same host as REST/GraphQL HTTP).
+   */
+  public getGraphqlWsUrl(): string {
+    const base = this.apiClient.defaults.baseURL;
+    if (!base) {
+      throw new Error('ClutchHubSdk: missing API base URL');
+    }
+    return hubGraphqlWsUrl(base);
+  }
+
+  private createGraphqlWsClient() {
+    return createHubSubscriptionClient({
+      url: this.getGraphqlWsUrl(),
+      connectionParams: async () => {
+        try {
+          await this.ensureAuth();
+        } catch {
+          /* public list subscriptions work without JWT */
+        }
+        return this.token ? { Authorization: `Bearer ${this.token}` } : {};
+      },
+    });
   }
 
   private async executeGraphQL<T>(query: string, variables: any): Promise<T> {
@@ -306,6 +350,159 @@ export class ClutchHubSdk {
    * @param bounds Optional map bounds { minLat, maxLat, minLng, maxLng }
    * @returns Array of available ride requests
    */
+  /**
+   * Subscribe to periodic snapshots of available ride requests (graphql-ws).
+   * @returns Dispose function to stop the subscription and close the socket.
+   */
+  public subscribeRideRequests(
+    bounds: MapBounds | null | undefined,
+    handlers: SubscriptionHandlers<AvailableRideRequest[]>
+  ): () => void {
+    const client = this.createGraphqlWsClient();
+    const query = `
+      subscription RideRequestsUpdated($bounds: MapBoundsInput) {
+        rideRequestsUpdated(bounds: $bounds) {
+          ${RIDE_REQUEST_GQL_FIELDS}
+        }
+      }
+    `;
+    const disposeSub = client.subscribe(
+      { query, variables: { bounds: bounds ?? null } },
+      {
+        next: (res) => {
+          const items = (res.data as { rideRequestsUpdated?: AvailableRideRequest[] } | null | undefined)
+            ?.rideRequestsUpdated;
+          if (items) {
+            handlers.onData(items);
+          }
+        },
+        error: (err) => handlers.onError?.(err as Error),
+        complete: () => {},
+      }
+    );
+    return () => {
+      disposeSub();
+      client.dispose();
+    };
+  }
+
+  /**
+   * Subscribe to ride offers for a single ride request tx hash.
+   */
+  public subscribeRideOffers(
+    rideRequestTxHash: string,
+    handlers: SubscriptionHandlers<AvailableRideOffer[]>
+  ): () => void {
+    const client = this.createGraphqlWsClient();
+    const query = `
+      subscription RideOffersUpdated($rideRequestTxHash: String!) {
+        rideOffersUpdated(rideRequestTxHash: $rideRequestTxHash) {
+          ${RIDE_OFFER_GQL_FIELDS}
+        }
+      }
+    `;
+    const disposeSub = client.subscribe(
+      { query, variables: { rideRequestTxHash } },
+      {
+        next: (res) => {
+          const items = (res.data as { rideOffersUpdated?: AvailableRideOffer[] } | null | undefined)
+            ?.rideOffersUpdated;
+          if (items) {
+            handlers.onData(items);
+          }
+        },
+        error: (err) => handlers.onError?.(err as Error),
+        complete: () => {},
+      }
+    );
+    return () => {
+      disposeSub();
+      client.dispose();
+    };
+  }
+
+  /**
+   * Subscribe to active trips, optionally filtered by driver or passenger address.
+   */
+  public subscribeActiveTrips(
+    options: { driverAddress?: string; passengerAddress?: string } | undefined,
+    handlers: SubscriptionHandlers<AvailableActiveTrip[]>
+  ): () => void {
+    const client = this.createGraphqlWsClient();
+    const query = `
+      subscription ActiveTripsUpdated($driverAddress: String, $passengerAddress: String) {
+        activeTripsUpdated(driverAddress: $driverAddress, passengerAddress: $passengerAddress) {
+          ${ACTIVE_TRIP_GQL_FIELDS}
+        }
+      }
+    `;
+    const disposeSub = client.subscribe(
+      {
+        query,
+        variables: {
+          driverAddress: options?.driverAddress ?? null,
+          passengerAddress: options?.passengerAddress ?? null,
+        },
+      },
+      {
+        next: (res) => {
+          const items = (res.data as { activeTripsUpdated?: AvailableActiveTrip[] } | null | undefined)
+            ?.activeTripsUpdated;
+          if (items) {
+            handlers.onData(items);
+          }
+        },
+        error: (err) => handlers.onError?.(err as Error),
+        complete: () => {},
+      }
+    );
+    return () => {
+      disposeSub();
+      client.dispose();
+    };
+  }
+
+  /**
+   * Subscribe to completed trips, optionally filtered by driver or passenger address.
+   */
+  public subscribeCompletedTrips(
+    options: { driverAddress?: string; passengerAddress?: string } | undefined,
+    handlers: SubscriptionHandlers<AvailableCompletedTrip[]>
+  ): () => void {
+    const client = this.createGraphqlWsClient();
+    const query = `
+      subscription CompletedTripsUpdated($driverAddress: String, $passengerAddress: String) {
+        completedTripsUpdated(driverAddress: $driverAddress, passengerAddress: $passengerAddress) {
+          ${ACTIVE_TRIP_GQL_FIELDS}
+        }
+      }
+    `;
+    const disposeSub = client.subscribe(
+      {
+        query,
+        variables: {
+          driverAddress: options?.driverAddress ?? null,
+          passengerAddress: options?.passengerAddress ?? null,
+        },
+      },
+      {
+        next: (res) => {
+          const items = (res.data as { completedTripsUpdated?: AvailableActiveTrip[] } | null | undefined)
+            ?.completedTripsUpdated;
+          if (items) {
+            handlers.onData(items);
+          }
+        },
+        error: (err) => handlers.onError?.(err as Error),
+        complete: () => {},
+      }
+    );
+    return () => {
+      disposeSub();
+      client.dispose();
+    };
+  }
+
   public async listRideRequests(bounds?: MapBounds | null): Promise<AvailableRideRequest[]> {
     const query = `
       query ListRideRequests($bounds: MapBoundsInput) {

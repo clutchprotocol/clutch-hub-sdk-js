@@ -25,6 +25,7 @@ JavaScript SDK for interacting with the clutch-hub-api
 - **Client-side signing:** Never expose your private key to the server; all signing is done in the browser or mobile app.
 - **Transaction helpers:** Easily build, encode, and sign custom Clutch transactions (e.g., ride requests).
 - **API integration:** Fetch chain state and submit signed transactions to the hub API.
+- **GraphQL subscriptions:** `subscribeRideRequests`, `subscribeRideOffers`, `subscribeActiveTrips`, and `subscribeCompletedTrips` use [`graphql-ws`](https://github.com/enisdenjo/graphql-ws) against `wss://…/graphql/ws` (see `hubGraphqlWsUrl()`). Each call opens a WebSocket, sends optional JWT from `connection_init`, and returns a **dispose** function for cleanup.
 - **TypeScript support:** Type-safe interfaces for all major methods and transaction types.
 
 ## Installation
