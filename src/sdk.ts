@@ -21,6 +21,7 @@ import {
   RideOfferArgs,
   RideAcceptanceArgs,
   RidePayArgs,
+  RideCancelArgs,
   Signature,
 } from './types';
 
@@ -278,6 +279,26 @@ export class ClutchHubSdk {
       createUnsignedRidePay: UnsignedTransaction;
     }>(query, variables);
     return result.createUnsignedRidePay;
+  }
+
+  /**
+   * Fetches an unsigned RideCancel transaction. Either passenger or driver may cancel an active ride.
+   * Refunds unpaid fare to the passenger. Cannot cancel if full fare has already been paid.
+   */
+  public async createUnsignedRideCancel(args: RideCancelArgs): Promise<UnsignedTransaction> {
+    await this.ensureAuth();
+    const query = `
+      mutation CreateUnsignedRideCancel($rideAcceptanceTransactionHash: String!) {
+        createUnsignedRideCancel(rideAcceptanceTransactionHash: $rideAcceptanceTransactionHash)
+      }
+    `;
+    const variables = {
+      rideAcceptanceTransactionHash: args.rideAcceptanceTxHash,
+    };
+    const result = await this.executeGraphQL<{
+      createUnsignedRideCancel: UnsignedTransaction;
+    }>(query, variables);
+    return result.createUnsignedRideCancel;
   }
 
   /**
@@ -683,6 +704,13 @@ export class ClutchHubSdk {
         const fare = argsData.fare ?? 0;
         const args = [normalizeTxHashForRlp(String(rideAcceptanceTxHash)), fare];
         return [4, args];
+      }
+      case 'RideCancel': {
+        const argsData = data.arguments || data;
+        const rideAcceptanceTxHash =
+          argsData.ride_acceptance_transaction_hash ?? argsData.rideAcceptanceTxHash ?? '';
+        const args = [normalizeTxHashForRlp(String(rideAcceptanceTxHash))];
+        return [5, args];
       }
       default:
         throw new Error(`Unsupported FunctionCall type: ${type}`);
