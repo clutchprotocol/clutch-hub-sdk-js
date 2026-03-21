@@ -32,6 +32,10 @@ export interface RideCancelArgs {
   rideAcceptanceTxHash: string;
 }
 
+export interface RideRequestCancelArgs {
+  rideRequestTxHash: string;
+}
+
 /** Map viewport bounds for filtering ride requests by pickup location. */
 export interface MapBounds {
   minLat: number;
