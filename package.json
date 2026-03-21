@@ -1,6 +1,6 @@
 {
   "name": "clutch-hub-sdk-js",
-  "version": "1.13.0",
+  "version": "1.14.0",
   "description": "JavaScript SDK for interacting with the clutch-hub-api",
   "main": "dist/index.js",
   "module": "dist/index.js",

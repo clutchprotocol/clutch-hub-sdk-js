@@ -1,3 +1,10 @@
+## [1.14.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.13.0...v1.14.0) (2026-03-21)
+
+
+### Features
+
+* **sdk:** add createUnsignedRideCancel method for ride cancellation ([0976a49](https://github.com/clutchprotocol/clutch-hub-sdk-js/commit/0976a4975b1828d85d32dfcff86de7ff6fa48e4b))
+
 ## [1.13.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.12.0...v1.13.0) (2026-03-20)
 
 
