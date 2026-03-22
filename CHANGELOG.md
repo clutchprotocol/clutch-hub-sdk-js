@@ -1,3 +1,10 @@
+## [1.16.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.15.0...v1.16.0) (2026-03-22)
+
+
+### Features
+
+* **sdk:** add requestFaucet method for test CLT retrieval ([a2a3fb2](https://github.com/clutchprotocol/clutch-hub-sdk-js/commit/a2a3fb2f5b4ac2c543e8de0d5bdb1c54d5a1336e))
+
 ## [1.15.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.14.0...v1.15.0) (2026-03-21)
 
 
