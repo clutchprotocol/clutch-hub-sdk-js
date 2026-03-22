@@ -16,6 +16,7 @@ import {
   AvailableRideOffer,
   AvailableActiveTrip,
   AvailableCompletedTrip,
+  FaucetResponse,
   MapBounds,
   RideRequestArgs,
   RideOfferArgs,
@@ -663,6 +664,31 @@ export class ClutchHubSdk {
       accountBalance: number;
     }>(query, { publicKey: publicKey ?? this.publicKey });
     return result.accountBalance;
+  }
+
+  /**
+   * Request test CLT from the Hub API faucet (POST /faucet). Requires `faucet_enabled` and a funded
+   * `faucet_private_key` on the server. No GraphQL auth token required for this HTTP endpoint.
+   */
+  public async requestFaucet(recipientAddress: string): Promise<FaucetResponse> {
+    try {
+      const res = await this.apiClient.post<{ ok: boolean; amount_clt: number; node: unknown }>(
+        '/faucet',
+        { address: recipientAddress }
+      );
+      return {
+        ok: true,
+        amount_clt: res.data.amount_clt,
+        node: res.data.node,
+      };
+    } catch (err: unknown) {
+      const ax = err as { response?: { data?: { error?: string } }; message?: string };
+      const msg =
+        typeof ax.response?.data?.error === 'string'
+          ? ax.response.data.error
+          : ax.message ?? 'Faucet request failed';
+      return { ok: false, error: String(msg) };
+    }
   }
 
   /**
