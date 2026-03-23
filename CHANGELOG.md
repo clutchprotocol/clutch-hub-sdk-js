@@ -1,3 +1,10 @@
+## [1.17.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.16.0...v1.17.0) (2026-03-23)
+
+
+### Features
+
+* **sdk:** add recent trips subscription and listing methods ([61f4298](https://github.com/clutchprotocol/clutch-hub-sdk-js/commit/61f42985565dc04249dcb4a491968cc715c25ad5))
+
 ## [1.16.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.15.0...v1.16.0) (2026-03-22)
 
 
