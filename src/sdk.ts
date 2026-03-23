@@ -7,6 +7,7 @@ import {
   ACTIVE_TRIP_GQL_FIELDS,
   createHubSubscriptionClient,
   hubGraphqlWsUrl,
+  RECENT_TRIP_GQL_FIELDS,
   RIDE_OFFER_GQL_FIELDS,
   RIDE_REQUEST_GQL_FIELDS,
   type SubscriptionHandlers,
@@ -16,6 +17,7 @@ import {
   AvailableRideOffer,
   AvailableActiveTrip,
   AvailableCompletedTrip,
+  AvailableRecentTrip,
   FaucetResponse,
   MapBounds,
   RideRequestArgs,
@@ -546,6 +548,47 @@ export class ClutchHubSdk {
     };
   }
 
+  /**
+   * Subscribe to recent finished trips (completed or cancelled), optionally filtered by driver or passenger.
+   */
+  public subscribeRecentTrips(
+    options: { driverAddress?: string; passengerAddress?: string } | undefined,
+    handlers: SubscriptionHandlers<AvailableRecentTrip[]>
+  ): () => void {
+    const client = this.createGraphqlWsClient();
+    const query = `
+      subscription RecentTripsUpdated($driverAddress: String, $passengerAddress: String) {
+        recentTripsUpdated(driverAddress: $driverAddress, passengerAddress: $passengerAddress) {
+          ${RECENT_TRIP_GQL_FIELDS}
+        }
+      }
+    `;
+    const disposeSub = client.subscribe(
+      {
+        query,
+        variables: {
+          driverAddress: options?.driverAddress ?? null,
+          passengerAddress: options?.passengerAddress ?? null,
+        },
+      },
+      {
+        next: (res) => {
+          const items = (res.data as { recentTripsUpdated?: AvailableRecentTrip[] } | null | undefined)
+            ?.recentTripsUpdated;
+          if (items) {
+            handlers.onData(items);
+          }
+        },
+        error: (err) => handlers.onError?.(err as Error),
+        complete: () => {},
+      }
+    );
+    return () => {
+      disposeSub();
+      client.dispose();
+    };
+  }
+
   public async listRideRequests(bounds?: MapBounds | null): Promise<AvailableRideRequest[]> {
     const query = `
       query ListRideRequests($bounds: MapBoundsInput) {
@@ -648,6 +691,30 @@ export class ClutchHubSdk {
       passengerAddress: options?.passengerAddress ?? null,
     });
     return result.listCompletedTrips;
+  }
+
+  /**
+   * Lists recent finished trips (full fare paid or cancelled).
+   * Optionally filter by driver or passenger address.
+   */
+  public async listRecentTrips(options?: {
+    driverAddress?: string;
+    passengerAddress?: string;
+  }): Promise<AvailableRecentTrip[]> {
+    const query = `
+      query ListRecentTrips($driverAddress: String, $passengerAddress: String) {
+        listRecentTrips(driverAddress: $driverAddress, passengerAddress: $passengerAddress) {
+          ${RECENT_TRIP_GQL_FIELDS}
+        }
+      }
+    `;
+    const result = await this.executeGraphQL<{
+      listRecentTrips: AvailableRecentTrip[];
+    }>(query, {
+      driverAddress: options?.driverAddress ?? null,
+      passengerAddress: options?.passengerAddress ?? null,
+    });
+    return result.listRecentTrips;
   }
 
   /**

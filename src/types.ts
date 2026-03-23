@@ -86,6 +86,11 @@ export interface AvailableActiveTrip {
 /** Completed trip (full fare paid); same payload as active trip from the API. */
 export type AvailableCompletedTrip = AvailableActiveTrip;
 
+/** Recent finished trip: full fare paid or cancelled (`tripStatus`). */
+export interface AvailableRecentTrip extends AvailableActiveTrip {
+  tripStatus: 'completed' | 'cancelled' | string;
+}
+
 export interface Signature {
   r: string;
   s: string;

@@ -40,6 +40,20 @@ export const ACTIVE_TRIP_GQL_FIELDS = `
   passengerAddress
 `;
 
+/** Finished trip history: includes `tripStatus` (`completed` | `cancelled`). */
+export const RECENT_TRIP_GQL_FIELDS = `
+  txHash
+  rideOfferTxHash
+  rideRequestTxHash
+  pickupLocation { latitude longitude }
+  dropoffLocation { latitude longitude }
+  fare
+  farePaid
+  driverAddress
+  passengerAddress
+  tripStatus
+`;
+
 export type SubscriptionHandlers<T> = {
   onData: (items: T) => void;
   onError?: (err: Error) => void;
