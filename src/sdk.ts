@@ -759,15 +759,21 @@ export class ClutchHubSdk {
   }
 
   /**
-   * Signs a hex-encoded hash.
+   * Signs the message that the Rust node verifies.
+   *
+   * Rust does:
+   * - message_hash = Keccak256(tx.hash.as_bytes())
+   * - then uses ECDSA recoverable signature with that message_hash
    */
   private async signHash(
     hashHex: string,
     privateKey: string
   ): Promise<Signature> {
-    const hashBuffer = Buffer.from(stripHexPrefix(hashHex), 'hex');
     const privKeyClean = stripHexPrefix(privateKey);
-    const sig = await secp.signAsync(hashBuffer, privKeyClean);
+    // `hashHex` is the exact string stored in the Rust transaction `hash` field.
+    // The node verifies by hashing its UTF-8 bytes with Keccak-256.
+    const messageHash = keccak_256(Buffer.from(hashHex, 'utf8'));
+    const sig = await secp.signAsync(messageHash, privKeyClean);
     const r = sig.r.toString(16).padStart(64, '0');
     const s = sig.s.toString(16).padStart(64, '0');
     const v = (typeof sig.recovery === 'number' ? sig.recovery : 0) + 27;
