@@ -1,3 +1,10 @@
+## [1.17.1](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.17.0...v1.17.1) (2026-03-25)
+
+
+### Bug Fixes
+
+* **sdk:** update signHash method to align with Rust node verification ([aa38579](https://github.com/clutchprotocol/clutch-hub-sdk-js/commit/aa385799fc0c85406b0faa32349a9a198af709bf))
+
 ## [1.17.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.16.0...v1.17.0) (2026-03-23)
 
 
