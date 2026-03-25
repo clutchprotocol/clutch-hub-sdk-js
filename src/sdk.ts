@@ -63,6 +63,23 @@ if (typeof window !== 'undefined' && !window.Buffer) {
   window.Buffer = Buffer;
 }
 
+type TokenCacheEntry = {
+  token: string;
+  /** Epoch milliseconds when the JWT should be considered expired */
+  expireTimeMs: number;
+};
+
+/**
+ * Global JWT cache keyed by `publicKey`.
+ * This prevents every `new ClutchHubSdk(...)` instance from repeatedly calling `generateToken`.
+ */
+const globalTokenCache = new Map<string, TokenCacheEntry>();
+
+/**
+ * Deduplicate concurrent `generateToken` calls per `publicKey`.
+ */
+const inFlightTokenRequests = new Map<string, Promise<TokenCacheEntry>>();
+
 /**
  * Represents an unsigned transaction returned by the GraphQL API.
  */
@@ -153,20 +170,53 @@ export class ClutchHubSdk {
     const now = Date.now();
     // Add buffer time to prevent race conditions near token expiration
     const bufferTime = 30000; // 30 seconds
-    if (!this.token || now >= (this.tokenExpireTime - bufferTime)) {
-      const query = `
-        mutation GenerateToken($publicKey: String!) {
-          generateToken(publicKey: $publicKey) {
-            token
-            expiresAt
-          }
+
+    const cached = globalTokenCache.get(this.publicKey);
+    if (cached && now < cached.expireTimeMs - bufferTime) {
+      this.token = cached.token;
+      this.tokenExpireTime = cached.expireTimeMs;
+      return;
+    }
+
+    // If another SDK instance is already generating a token, await it.
+    const existingInFlight = inFlightTokenRequests.get(this.publicKey);
+    if (existingInFlight) {
+      const entry = await existingInFlight;
+      this.token = entry.token;
+      this.tokenExpireTime = entry.expireTimeMs;
+      return;
+    }
+
+    const query = `
+      mutation GenerateToken($publicKey: String!) {
+        generateToken(publicKey: $publicKey) {
+          token
+          expiresAt
         }
-      `;
+      }
+    `;
+
+    const requestPromise: Promise<TokenCacheEntry> = (async () => {
       const data = await this.executeGraphQL<{
         generateToken: { token: string; expiresAt: number }
       }>(query, { publicKey: this.publicKey });
-      this.token = data.generateToken.token;
-      this.tokenExpireTime = data.generateToken.expiresAt * 1000;
+
+      const entry: TokenCacheEntry = {
+        token: data.generateToken.token,
+        expireTimeMs: data.generateToken.expiresAt * 1000,
+      };
+
+      globalTokenCache.set(this.publicKey, entry);
+      return entry;
+    })();
+
+    inFlightTokenRequests.set(this.publicKey, requestPromise);
+    try {
+      const entry = await requestPromise;
+      this.token = entry.token;
+      this.tokenExpireTime = entry.expireTimeMs;
+    } finally {
+      inFlightTokenRequests.delete(this.publicKey);
     }
   }
 
