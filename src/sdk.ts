@@ -784,6 +784,45 @@ export class ClutchHubSdk {
   }
 
   /**
+   * Subscribes to periodic `accountBalance` updates over WebSocket.
+   * Returns a dispose function to stop the subscription.
+   */
+  public subscribeAccountBalance(
+    options: { publicKey?: string } | undefined,
+    handlers: SubscriptionHandlers<number>
+  ): () => void {
+    const client = this.createGraphqlWsClient();
+    const query = `
+      subscription AccountBalanceUpdated($publicKey: String!) {
+        accountBalanceUpdated(publicKey: $publicKey)
+      }
+    `;
+
+    const publicKey = options?.publicKey ?? this.publicKey;
+
+    const disposeSub = client.subscribe(
+      { query, variables: { publicKey } },
+      {
+        next: (res) => {
+          const value = (res.data as { accountBalanceUpdated?: number | string | null | undefined })
+            ?.accountBalanceUpdated;
+          const asNumber = typeof value === 'number' ? value : Number(value);
+          if (Number.isFinite(asNumber)) {
+            handlers.onData(asNumber);
+          }
+        },
+        error: (err) => handlers.onError?.(err as Error),
+        complete: () => {},
+      }
+    );
+
+    return () => {
+      disposeSub();
+      client.dispose();
+    };
+  }
+
+  /**
    * Request test CLT from the Hub API faucet (POST /faucet). Requires `faucet_enabled` and a funded
    * `faucet_private_key` on the server. No GraphQL auth token required for this HTTP endpoint.
    */
