@@ -1,3 +1,10 @@
+## [1.19.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.18.0...v1.19.0) (2026-03-25)
+
+
+### Features
+
+* **sdk:** add subscribeAccountBalance method for WebSocket updates ([b8d61ca](https://github.com/clutchprotocol/clutch-hub-sdk-js/commit/b8d61caed358afaa9bbd96924c59562704642271))
+
 ## [1.18.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.17.1...v1.18.0) (2026-03-25)
 
 
