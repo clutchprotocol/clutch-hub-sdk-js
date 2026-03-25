@@ -1,3 +1,10 @@
+## [1.18.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.17.1...v1.18.0) (2026-03-25)
+
+
+### Features
+
+* **sdk:** implement global JWT caching and deduplication for token generation ([5211cbc](https://github.com/clutchprotocol/clutch-hub-sdk-js/commit/5211cbc3067777d1584a3257996dea59bc56033b))
+
 ## [1.17.1](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.17.0...v1.17.1) (2026-03-25)
 
 
