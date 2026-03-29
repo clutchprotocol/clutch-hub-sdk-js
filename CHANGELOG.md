@@ -1,3 +1,10 @@
+## [1.20.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.19.0...v1.20.0) (2026-03-29)
+
+
+### Features
+
+* **sdk:** implement shared GraphQL WebSocket client and token caching ([52e2724](https://github.com/clutchprotocol/clutch-hub-sdk-js/commit/52e2724677e7162bf583291f7931cd4895d26cfa))
+
 ## [1.19.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.18.0...v1.19.0) (2026-03-25)
 
 
