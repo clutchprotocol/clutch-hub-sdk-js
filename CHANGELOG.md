@@ -1,3 +1,10 @@
+## [1.21.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.20.0...v1.21.0) (2026-03-29)
+
+
+### Features
+
+* **sdk:** refactor subscription methods to utilize shared GraphQL WebSocket client ([6b5acb7](https://github.com/clutchprotocol/clutch-hub-sdk-js/commit/6b5acb7d5266216dbfc1eb0e9b69b53a6e41aa62))
+
 ## [1.20.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.19.0...v1.20.0) (2026-03-29)
 
 
