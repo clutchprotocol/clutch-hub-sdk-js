@@ -254,6 +254,36 @@ export class ClutchHubSdk {
     return { client: entry.client, release };
   }
 
+  /**
+   * Shared graphql-ws list subscription: one multiplexed client via {@link acquireGraphqlWsClient}.
+   */
+  private subscribeGraphqlListField<T>(
+    query: string,
+    variables: Record<string, unknown>,
+    responseField: string,
+    handlers: SubscriptionHandlers<T[]>
+  ): () => void {
+    const { client, release } = this.acquireGraphqlWsClient();
+    const disposeSub = client.subscribe(
+      { query, variables },
+      {
+        next: (res) => {
+          const root = res.data as Record<string, T[] | undefined> | null | undefined;
+          const items = root?.[responseField];
+          if (items) {
+            handlers.onData(items);
+          }
+        },
+        error: (err) => handlers.onError?.(err as Error),
+        complete: () => {},
+      }
+    );
+    return () => {
+      disposeSub();
+      release();
+    };
+  }
+
   private async executeGraphQL<T>(query: string, variables: any): Promise<T> {
     const response = await this.apiClient.post(
       '/graphql',
@@ -543,20 +573,13 @@ export class ClutchHubSdk {
   }
 
   /**
-   * Lists available ride requests (not yet accepted by a driver).
-   * Optionally filter by map bounds to show only requests in the visible viewport.
-   * @param bounds Optional map bounds { minLat, maxLat, minLng, maxLng }
-   * @returns Array of available ride requests
-   */
-  /**
    * Subscribe to periodic snapshots of available ride requests (graphql-ws).
-   * @returns Dispose function to stop the subscription and close the socket.
+   * @returns Dispose function to stop the subscription and release the shared client refcount.
    */
   public subscribeRideRequests(
     bounds: MapBounds | null | undefined,
     handlers: SubscriptionHandlers<AvailableRideRequest[]>
   ): () => void {
-    const { client, release } = this.acquireGraphqlWsClient();
     const query = `
       subscription RideRequestsUpdated($bounds: MapBoundsInput) {
         rideRequestsUpdated(bounds: $bounds) {
@@ -564,24 +587,12 @@ export class ClutchHubSdk {
         }
       }
     `;
-    const disposeSub = client.subscribe(
-      { query, variables: { bounds: bounds ?? null } },
-      {
-        next: (res) => {
-          const items = (res.data as { rideRequestsUpdated?: AvailableRideRequest[] } | null | undefined)
-            ?.rideRequestsUpdated;
-          if (items) {
-            handlers.onData(items);
-          }
-        },
-        error: (err) => handlers.onError?.(err as Error),
-        complete: () => {},
-      }
+    return this.subscribeGraphqlListField<AvailableRideRequest>(
+      query,
+      { bounds: bounds ?? null },
+      'rideRequestsUpdated',
+      handlers
     );
-    return () => {
-      disposeSub();
-      release();
-    };
   }
 
   /**
@@ -591,7 +602,6 @@ export class ClutchHubSdk {
     rideRequestTxHash: string,
     handlers: SubscriptionHandlers<AvailableRideOffer[]>
   ): () => void {
-    const { client, release } = this.acquireGraphqlWsClient();
     const query = `
       subscription RideOffersUpdated($rideRequestTxHash: String!) {
         rideOffersUpdated(rideRequestTxHash: $rideRequestTxHash) {
@@ -599,24 +609,12 @@ export class ClutchHubSdk {
         }
       }
     `;
-    const disposeSub = client.subscribe(
-      { query, variables: { rideRequestTxHash } },
-      {
-        next: (res) => {
-          const items = (res.data as { rideOffersUpdated?: AvailableRideOffer[] } | null | undefined)
-            ?.rideOffersUpdated;
-          if (items) {
-            handlers.onData(items);
-          }
-        },
-        error: (err) => handlers.onError?.(err as Error),
-        complete: () => {},
-      }
+    return this.subscribeGraphqlListField<AvailableRideOffer>(
+      query,
+      { rideRequestTxHash },
+      'rideOffersUpdated',
+      handlers
     );
-    return () => {
-      disposeSub();
-      release();
-    };
   }
 
   /**
@@ -626,7 +624,6 @@ export class ClutchHubSdk {
     options: { driverAddress?: string; passengerAddress?: string } | undefined,
     handlers: SubscriptionHandlers<AvailableActiveTrip[]>
   ): () => void {
-    const { client, release } = this.acquireGraphqlWsClient();
     const query = `
       subscription ActiveTripsUpdated($driverAddress: String, $passengerAddress: String) {
         activeTripsUpdated(driverAddress: $driverAddress, passengerAddress: $passengerAddress) {
@@ -634,30 +631,15 @@ export class ClutchHubSdk {
         }
       }
     `;
-    const disposeSub = client.subscribe(
+    return this.subscribeGraphqlListField<AvailableActiveTrip>(
+      query,
       {
-        query,
-        variables: {
-          driverAddress: options?.driverAddress ?? null,
-          passengerAddress: options?.passengerAddress ?? null,
-        },
+        driverAddress: options?.driverAddress ?? null,
+        passengerAddress: options?.passengerAddress ?? null,
       },
-      {
-        next: (res) => {
-          const items = (res.data as { activeTripsUpdated?: AvailableActiveTrip[] } | null | undefined)
-            ?.activeTripsUpdated;
-          if (items) {
-            handlers.onData(items);
-          }
-        },
-        error: (err) => handlers.onError?.(err as Error),
-        complete: () => {},
-      }
+      'activeTripsUpdated',
+      handlers
     );
-    return () => {
-      disposeSub();
-      release();
-    };
   }
 
   /**
@@ -667,7 +649,6 @@ export class ClutchHubSdk {
     options: { driverAddress?: string; passengerAddress?: string } | undefined,
     handlers: SubscriptionHandlers<AvailableCompletedTrip[]>
   ): () => void {
-    const { client, release } = this.acquireGraphqlWsClient();
     const query = `
       subscription CompletedTripsUpdated($driverAddress: String, $passengerAddress: String) {
         completedTripsUpdated(driverAddress: $driverAddress, passengerAddress: $passengerAddress) {
@@ -675,30 +656,15 @@ export class ClutchHubSdk {
         }
       }
     `;
-    const disposeSub = client.subscribe(
+    return this.subscribeGraphqlListField<AvailableCompletedTrip>(
+      query,
       {
-        query,
-        variables: {
-          driverAddress: options?.driverAddress ?? null,
-          passengerAddress: options?.passengerAddress ?? null,
-        },
+        driverAddress: options?.driverAddress ?? null,
+        passengerAddress: options?.passengerAddress ?? null,
       },
-      {
-        next: (res) => {
-          const items = (res.data as { completedTripsUpdated?: AvailableActiveTrip[] } | null | undefined)
-            ?.completedTripsUpdated;
-          if (items) {
-            handlers.onData(items);
-          }
-        },
-        error: (err) => handlers.onError?.(err as Error),
-        complete: () => {},
-      }
+      'completedTripsUpdated',
+      handlers
     );
-    return () => {
-      disposeSub();
-      release();
-    };
   }
 
   /**
@@ -708,7 +674,6 @@ export class ClutchHubSdk {
     options: { driverAddress?: string; passengerAddress?: string } | undefined,
     handlers: SubscriptionHandlers<AvailableRecentTrip[]>
   ): () => void {
-    const { client, release } = this.acquireGraphqlWsClient();
     const query = `
       subscription RecentTripsUpdated($driverAddress: String, $passengerAddress: String) {
         recentTripsUpdated(driverAddress: $driverAddress, passengerAddress: $passengerAddress) {
@@ -716,30 +681,15 @@ export class ClutchHubSdk {
         }
       }
     `;
-    const disposeSub = client.subscribe(
+    return this.subscribeGraphqlListField<AvailableRecentTrip>(
+      query,
       {
-        query,
-        variables: {
-          driverAddress: options?.driverAddress ?? null,
-          passengerAddress: options?.passengerAddress ?? null,
-        },
+        driverAddress: options?.driverAddress ?? null,
+        passengerAddress: options?.passengerAddress ?? null,
       },
-      {
-        next: (res) => {
-          const items = (res.data as { recentTripsUpdated?: AvailableRecentTrip[] } | null | undefined)
-            ?.recentTripsUpdated;
-          if (items) {
-            handlers.onData(items);
-          }
-        },
-        error: (err) => handlers.onError?.(err as Error),
-        complete: () => {},
-      }
+      'recentTripsUpdated',
+      handlers
     );
-    return () => {
-      disposeSub();
-      release();
-    };
   }
 
   public async listRideRequests(bounds?: MapBounds | null): Promise<AvailableRideRequest[]> {
