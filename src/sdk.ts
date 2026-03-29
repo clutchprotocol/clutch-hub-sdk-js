@@ -1,5 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 import { Buffer } from 'buffer';
+import type { Client } from 'graphql-ws';
 import { keccak_256 } from '@noble/hashes/sha3';
 import * as rlp from 'rlp';
 import * as secp from '@noble/secp256k1';
@@ -80,6 +81,78 @@ const globalTokenCache = new Map<string, TokenCacheEntry>();
  */
 const inFlightTokenRequests = new Map<string, Promise<TokenCacheEntry>>();
 
+type SharedGraphqlWsEntry = { client: Client; refcount: number };
+
+/**
+ * One graphql-ws connection per hub URL + wallet; multiplex all subscriptions on it.
+ * Without this, each subscribe* call opened a new socket (`lazy: false`), which explodes
+ * when the app mounts several subscriptions or switches views that create new SDKs.
+ */
+const sharedGraphqlWsClients = new Map<string, SharedGraphqlWsEntry>();
+
+function sharedGraphqlWsCacheKey(baseURL: string, publicKey: string): string {
+  return `${baseURL.replace(/\/$/, '')}\0${publicKey}`;
+}
+
+/**
+ * Same token resolution as `ensureAuth`, but only updates the global cache (no `this`).
+ * Used by shared WebSocket `connectionParams` so any subscriber shares one connection.
+ */
+async function ensureTokenInCacheForPublicKey(
+  publicKey: string,
+  apiClient: AxiosInstance
+): Promise<void> {
+  const now = Date.now();
+  const bufferTime = 30000;
+
+  const cached = globalTokenCache.get(publicKey);
+  if (cached && now < cached.expireTimeMs - bufferTime) {
+    return;
+  }
+
+  const existingInFlight = inFlightTokenRequests.get(publicKey);
+  if (existingInFlight) {
+    await existingInFlight;
+    return;
+  }
+
+  const query = `
+    mutation GenerateToken($publicKey: String!) {
+      generateToken(publicKey: $publicKey) {
+        token
+        expiresAt
+      }
+    }
+  `;
+
+  const requestPromise: Promise<TokenCacheEntry> = (async () => {
+    const response = await apiClient.post<{ data?: unknown; errors?: { message: string }[] }>(
+      '/graphql',
+      { query, variables: { publicKey } }
+    );
+    const body = response.data as { errors?: { message: string }[]; data?: { generateToken: { token: string; expiresAt: number } } };
+    if (body.errors?.length) {
+      throw new Error(body.errors.map((e) => e.message).join('\n'));
+    }
+    if (!body.data?.generateToken) {
+      throw new Error('No data returned from GraphQL.');
+    }
+    const entry: TokenCacheEntry = {
+      token: body.data.generateToken.token,
+      expireTimeMs: body.data.generateToken.expiresAt * 1000,
+    };
+    globalTokenCache.set(publicKey, entry);
+    return entry;
+  })();
+
+  inFlightTokenRequests.set(publicKey, requestPromise);
+  try {
+    await requestPromise;
+  } finally {
+    inFlightTokenRequests.delete(publicKey);
+  }
+}
+
 /**
  * Represents an unsigned transaction returned by the GraphQL API.
  */
@@ -137,18 +210,48 @@ export class ClutchHubSdk {
     return hubGraphqlWsUrl(base);
   }
 
-  private createGraphqlWsClient() {
-    return createHubSubscriptionClient({
-      url: this.getGraphqlWsUrl(),
-      connectionParams: async () => {
-        try {
-          await this.ensureAuth();
-        } catch {
-          /* public list subscriptions work without JWT */
-        }
-        return this.token ? { Authorization: `Bearer ${this.token}` } : {};
-      },
-    });
+  /**
+   * Acquire the shared graphql-ws client for this hub + public key.
+   * Call `release` when unsubscribing; last release disposes the socket.
+   */
+  private acquireGraphqlWsClient(): { client: Client; release: () => void } {
+    const base = this.apiClient.defaults.baseURL;
+    if (!base) {
+      throw new Error('ClutchHubSdk: missing API base URL');
+    }
+    const key = sharedGraphqlWsCacheKey(base, this.publicKey);
+    let entry = sharedGraphqlWsClients.get(key);
+    if (!entry) {
+      const pk = this.publicKey;
+      const apiClient = this.apiClient;
+      const client = createHubSubscriptionClient({
+        url: hubGraphqlWsUrl(base),
+        connectionParams: async () => {
+          try {
+            await ensureTokenInCacheForPublicKey(pk, apiClient);
+          } catch {
+            /* public list subscriptions work without JWT */
+          }
+          const c = globalTokenCache.get(pk);
+          return c?.token ? { Authorization: `Bearer ${c.token}` } : {};
+        },
+      });
+      entry = { client, refcount: 0 };
+      sharedGraphqlWsClients.set(key, entry);
+    }
+    entry.refcount += 1;
+    const release = () => {
+      const e = sharedGraphqlWsClients.get(key);
+      if (!e) {
+        return;
+      }
+      e.refcount -= 1;
+      if (e.refcount <= 0) {
+        e.client.dispose();
+        sharedGraphqlWsClients.delete(key);
+      }
+    };
+    return { client: entry.client, release };
   }
 
   private async executeGraphQL<T>(query: string, variables: any): Promise<T> {
@@ -453,7 +556,7 @@ export class ClutchHubSdk {
     bounds: MapBounds | null | undefined,
     handlers: SubscriptionHandlers<AvailableRideRequest[]>
   ): () => void {
-    const client = this.createGraphqlWsClient();
+    const { client, release } = this.acquireGraphqlWsClient();
     const query = `
       subscription RideRequestsUpdated($bounds: MapBoundsInput) {
         rideRequestsUpdated(bounds: $bounds) {
@@ -477,7 +580,7 @@ export class ClutchHubSdk {
     );
     return () => {
       disposeSub();
-      client.dispose();
+      release();
     };
   }
 
@@ -488,7 +591,7 @@ export class ClutchHubSdk {
     rideRequestTxHash: string,
     handlers: SubscriptionHandlers<AvailableRideOffer[]>
   ): () => void {
-    const client = this.createGraphqlWsClient();
+    const { client, release } = this.acquireGraphqlWsClient();
     const query = `
       subscription RideOffersUpdated($rideRequestTxHash: String!) {
         rideOffersUpdated(rideRequestTxHash: $rideRequestTxHash) {
@@ -512,7 +615,7 @@ export class ClutchHubSdk {
     );
     return () => {
       disposeSub();
-      client.dispose();
+      release();
     };
   }
 
@@ -523,7 +626,7 @@ export class ClutchHubSdk {
     options: { driverAddress?: string; passengerAddress?: string } | undefined,
     handlers: SubscriptionHandlers<AvailableActiveTrip[]>
   ): () => void {
-    const client = this.createGraphqlWsClient();
+    const { client, release } = this.acquireGraphqlWsClient();
     const query = `
       subscription ActiveTripsUpdated($driverAddress: String, $passengerAddress: String) {
         activeTripsUpdated(driverAddress: $driverAddress, passengerAddress: $passengerAddress) {
@@ -553,7 +656,7 @@ export class ClutchHubSdk {
     );
     return () => {
       disposeSub();
-      client.dispose();
+      release();
     };
   }
 
@@ -564,7 +667,7 @@ export class ClutchHubSdk {
     options: { driverAddress?: string; passengerAddress?: string } | undefined,
     handlers: SubscriptionHandlers<AvailableCompletedTrip[]>
   ): () => void {
-    const client = this.createGraphqlWsClient();
+    const { client, release } = this.acquireGraphqlWsClient();
     const query = `
       subscription CompletedTripsUpdated($driverAddress: String, $passengerAddress: String) {
         completedTripsUpdated(driverAddress: $driverAddress, passengerAddress: $passengerAddress) {
@@ -594,7 +697,7 @@ export class ClutchHubSdk {
     );
     return () => {
       disposeSub();
-      client.dispose();
+      release();
     };
   }
 
@@ -605,7 +708,7 @@ export class ClutchHubSdk {
     options: { driverAddress?: string; passengerAddress?: string } | undefined,
     handlers: SubscriptionHandlers<AvailableRecentTrip[]>
   ): () => void {
-    const client = this.createGraphqlWsClient();
+    const { client, release } = this.acquireGraphqlWsClient();
     const query = `
       subscription RecentTripsUpdated($driverAddress: String, $passengerAddress: String) {
         recentTripsUpdated(driverAddress: $driverAddress, passengerAddress: $passengerAddress) {
@@ -635,7 +738,7 @@ export class ClutchHubSdk {
     );
     return () => {
       disposeSub();
-      client.dispose();
+      release();
     };
   }
 
@@ -791,7 +894,7 @@ export class ClutchHubSdk {
     options: { publicKey?: string } | undefined,
     handlers: SubscriptionHandlers<number>
   ): () => void {
-    const client = this.createGraphqlWsClient();
+    const { client, release } = this.acquireGraphqlWsClient();
     const query = `
       subscription AccountBalanceUpdated($publicKey: String!) {
         accountBalanceUpdated(publicKey: $publicKey)
@@ -818,7 +921,7 @@ export class ClutchHubSdk {
 
     return () => {
       disposeSub();
-      client.dispose();
+      release();
     };
   }
 
