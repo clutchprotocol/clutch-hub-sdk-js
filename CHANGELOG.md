@@ -1,3 +1,10 @@
+## [1.22.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.21.0...v1.22.0) (2026-05-22)
+
+
+### Features
+
+* **sdk:** add referrer parameter to ride request and offer mutations ([d7a6218](https://github.com/clutchprotocol/clutch-hub-sdk-js/commit/d7a6218e7c7c81cc3c2cfc62f1fd7aa96e92e7ef))
+
 ## [1.21.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.20.0...v1.21.0) (2026-03-29)
 
 
