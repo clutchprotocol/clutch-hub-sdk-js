@@ -12,11 +12,15 @@ export interface RideRequestArgs {
   pickup: Coordinates;
   dropoff: Coordinates;
   fare: number;
+  /** Optional app developer address that receives a referrer fee on RidePay. */
+  referrer?: string;
 }
 
 export interface RideOfferArgs {
   rideRequestTxHash: string;
   fare: number;
+  /** Optional app developer address that receives a referrer fee on RidePay. */
+  referrer?: string;
 }
 
 export interface RideAcceptanceArgs {

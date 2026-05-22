@@ -368,14 +368,16 @@ export class ClutchHubSdk {
     const query = `
       mutation CreateUnsignedRideRequest(
         $pickupLatitude: Float!, $pickupLongitude: Float!,
-        $dropoffLatitude: Float!, $dropoffLongitude: Float!, $fare: Int!
+        $dropoffLatitude: Float!, $dropoffLongitude: Float!, $fare: Int!,
+        $referrer: String
       ) {
         createUnsignedRideRequest(
           pickupLatitude: $pickupLatitude,
           pickupLongitude: $pickupLongitude,
           dropoffLatitude: $dropoffLatitude,
           dropoffLongitude: $dropoffLongitude,
-          fare: $fare
+          fare: $fare,
+          referrer: $referrer
         )
       }
     `;
@@ -385,6 +387,7 @@ export class ClutchHubSdk {
       dropoffLatitude: dropoffLat,
       dropoffLongitude: dropoffLng,
       fare: args.fare,
+      referrer: args.referrer ?? null,
     };
     const result = await this.executeGraphQL<{
       createUnsignedRideRequest: UnsignedTransaction
@@ -402,17 +405,20 @@ export class ClutchHubSdk {
     await this.ensureAuth();
     const query = `
       mutation CreateUnsignedRideOffer(
-        $rideRequestTransactionHash: String!, $fare: Int!
+        $rideRequestTransactionHash: String!, $fare: Int!,
+        $referrer: String
       ) {
         createUnsignedRideOffer(
           rideRequestTransactionHash: $rideRequestTransactionHash,
-          fare: $fare
+          fare: $fare,
+          referrer: $referrer
         )
       }
     `;
     const variables = {
       rideRequestTransactionHash: args.rideRequestTxHash,
       fare: args.fare,
+      referrer: args.referrer ?? null,
     };
     const result = await this.executeGraphQL<{
       createUnsignedRideOffer: UnsignedTransaction
@@ -933,15 +939,22 @@ export class ClutchHubSdk {
     const type = data.function_call_type || data.type;
     switch (type) {
       case 'RideRequest': {
-        const { pickup_location, dropoff_location, fare } = data.arguments || data;
+        const argsData = data.arguments || data;
+        const { pickup_location, dropoff_location, fare } = argsData;
         const pickupLatBits = this.float64ToUint64(pickup_location.latitude);
         const pickupLngBits = this.float64ToUint64(pickup_location.longitude);
         const dropoffLatBits = this.float64ToUint64(dropoff_location.latitude);
         const dropoffLngBits = this.float64ToUint64(dropoff_location.longitude);
+        const referrerRaw = argsData.referrer;
+        const referrerForRlp =
+          referrerRaw != null && String(referrerRaw).length > 0
+            ? stripHexPrefix(String(referrerRaw))
+            : '';
         const args = [
           [pickupLatBits, pickupLngBits],
           [dropoffLatBits, dropoffLngBits],
           fare,
+          referrerForRlp,
         ];
         // Return the array: [tag, arguments]
         return [1, args];
@@ -950,7 +963,12 @@ export class ClutchHubSdk {
         const argsData = data.arguments || data;
         const rideRequestTxHash = argsData.ride_request_transaction_hash ?? argsData.rideRequestTxHash ?? '';
         const fare = argsData.fare ?? 0;
-        const args = [normalizeTxHashForRlp(String(rideRequestTxHash)), fare];
+        const referrerRaw = argsData.referrer;
+        const referrerForRlp =
+          referrerRaw != null && String(referrerRaw).length > 0
+            ? stripHexPrefix(String(referrerRaw))
+            : '';
+        const args = [normalizeTxHashForRlp(String(rideRequestTxHash)), fare, referrerForRlp];
         return [2, args];
       }
       case 'RideAcceptance': {
