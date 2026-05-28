@@ -368,16 +368,14 @@ export class ClutchHubSdk {
     const query = `
       mutation CreateUnsignedRideRequest(
         $pickupLatitude: Float!, $pickupLongitude: Float!,
-        $dropoffLatitude: Float!, $dropoffLongitude: Float!, $fare: Int!,
-        $referrer: String
+        $dropoffLatitude: Float!, $dropoffLongitude: Float!, $fare: Int!
       ) {
         createUnsignedRideRequest(
           pickupLatitude: $pickupLatitude,
           pickupLongitude: $pickupLongitude,
           dropoffLatitude: $dropoffLatitude,
           dropoffLongitude: $dropoffLongitude,
-          fare: $fare,
-          referrer: $referrer
+          fare: $fare
         )
       }
     `;
@@ -387,7 +385,6 @@ export class ClutchHubSdk {
       dropoffLatitude: dropoffLat,
       dropoffLongitude: dropoffLng,
       fare: args.fare,
-      referrer: args.referrer ?? null,
     };
     const result = await this.executeGraphQL<{
       createUnsignedRideRequest: UnsignedTransaction
@@ -405,20 +402,17 @@ export class ClutchHubSdk {
     await this.ensureAuth();
     const query = `
       mutation CreateUnsignedRideOffer(
-        $rideRequestTransactionHash: String!, $fare: Int!,
-        $referrer: String
+        $rideRequestTransactionHash: String!, $fare: Int!
       ) {
         createUnsignedRideOffer(
           rideRequestTransactionHash: $rideRequestTransactionHash,
-          fare: $fare,
-          referrer: $referrer
+          fare: $fare
         )
       }
     `;
     const variables = {
       rideRequestTransactionHash: args.rideRequestTxHash,
       fare: args.fare,
-      referrer: args.referrer ?? null,
     };
     const result = await this.executeGraphQL<{
       createUnsignedRideOffer: UnsignedTransaction
