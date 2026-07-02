@@ -23,7 +23,9 @@ npm install clutch-hub-sdk-js
 ```javascript
 import { ClutchHubSdk } from 'clutch-hub-sdk-js';
 
-const sdk = new ClutchHubSdk('http://localhost:3000', publicKey);
+// privateKey is needed for authenticated calls: generateToken requires a signed
+// proof-of-key-ownership challenge (the key stays local, it is never sent).
+const sdk = new ClutchHubSdk('http://localhost:3000', publicKey, privateKey);
 
 // Fund test wallet
 await sdk.requestFaucet(publicKey);
@@ -50,7 +52,7 @@ await sdk.submitTransaction(signed.rawTransaction);
 
 | Category | Methods |
 |----------|---------|
-| Auth | Auto `generateToken` via `ensureAuth()` |
+| Auth | Auto `generateToken` via `ensureAuth()` (signed challenge; needs the private key), `setPrivateKey`, `signAuthChallenge` |
 | Write | `createUnsignedRide*`, `signTransaction`, `submitTransaction` |
 | Read | `listRideRequests`, `listRideOffers`, `listActiveTrips`, `getAccountBalance`, … |
 | Live | `subscribeRideRequests`, `subscribeRideOffers`, `subscribeActiveTrips`, … |

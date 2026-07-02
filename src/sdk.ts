@@ -81,6 +81,67 @@ const globalTokenCache = new Map<string, TokenCacheEntry>();
  */
 const inFlightTokenRequests = new Map<string, Promise<TokenCacheEntry>>();
 
+/**
+ * Module-global private-key store keyed by `publicKey` (parallel to the JWT cache).
+ * `generateToken` requires proof of key ownership (a signed challenge), so token issuance
+ * needs the wallet's private key. Keys are kept in memory only and are **never** sent to
+ * the Hub API — only the challenge signature is.
+ */
+const globalPrivateKeys = new Map<string, string>();
+
+/** Prefix of the canonical proof-of-key-ownership message signed for `generateToken`. */
+export const AUTH_CHALLENGE_PREFIX = 'clutch-auth';
+
+/**
+ * Canonical auth challenge message for `generateToken`. Must match clutch-hub-api
+ * (`hub::auth::build_auth_challenge_message`) byte-for-byte: the exact `publicKey` string
+ * sent as the mutation argument and the timestamp in decimal unix seconds.
+ */
+export function buildAuthChallengeMessage(publicKey: string, timestamp: number): string {
+  return `${AUTH_CHALLENGE_PREFIX}:${publicKey}:${timestamp}`;
+}
+
+/**
+ * Keccak-256 of the canonical auth message as 64-char lowercase hex (no 0x).
+ * The signature is then computed over the UTF-8 bytes of this hex string (see `signHashHex`),
+ * the same convention used for transaction hashes.
+ */
+export function authChallengeHashHex(publicKey: string, timestamp: number): string {
+  const message = buildAuthChallengeMessage(publicKey, timestamp);
+  return Buffer.from(keccak_256(Buffer.from(message, 'utf8'))).toString('hex');
+}
+
+/**
+ * Signs a hash-hex string the way the Rust node/hub verify:
+ * - message_hash = Keccak256(hashHex.as_utf8_bytes()) — i.e. over the hex *string*, not its bytes
+ * - recoverable secp256k1 over that message_hash; v = recovery id + 27
+ */
+async function signHashHex(hashHex: string, privateKey: string): Promise<Signature> {
+  const privKeyClean = stripHexPrefix(privateKey);
+  const messageHash = keccak_256(Buffer.from(hashHex, 'utf8'));
+  const sig = await secp.signAsync(messageHash, privKeyClean);
+  const r = sig.r.toString(16).padStart(64, '0');
+  const s = sig.s.toString(16).padStart(64, '0');
+  const v = (typeof sig.recovery === 'number' ? sig.recovery : 0) + 27;
+  return {
+    r: '0x' + r,
+    s: '0x' + s,
+    v,
+  };
+}
+
+/**
+ * Sign the `generateToken` proof-of-key-ownership challenge.
+ * @param timestamp Unix seconds; the Hub API rejects timestamps more than ±120s from server time.
+ */
+export async function signAuthChallenge(
+  publicKey: string,
+  timestamp: number,
+  privateKey: string
+): Promise<Signature> {
+  return signHashHex(authChallengeHashHex(publicKey, timestamp), privateKey);
+}
+
 type SharedGraphqlWsEntry = { client: Client; refcount: number };
 
 /**
@@ -95,30 +156,41 @@ function sharedGraphqlWsCacheKey(baseURL: string, publicKey: string): string {
 }
 
 /**
- * Same token resolution as `ensureAuth`, but only updates the global cache (no `this`).
- * Used by shared WebSocket `connectionParams` so any subscriber shares one connection.
+ * Resolve a valid JWT for `publicKey` into the global cache (and return it), generating one
+ * via the `generateToken` mutation when needed. Shared by `ensureAuth` and the WebSocket
+ * `connectionParams` so all SDK instances and subscriptions share tokens.
+ *
+ * Token issuance signs the proof-of-key-ownership challenge, so a private key for
+ * `publicKey` must have been provided (constructor or `setPrivateKey`) unless a cached
+ * token is still valid.
  */
 async function ensureTokenInCacheForPublicKey(
   publicKey: string,
   apiClient: AxiosInstance
-): Promise<void> {
+): Promise<TokenCacheEntry> {
   const now = Date.now();
   const bufferTime = 30000;
 
   const cached = globalTokenCache.get(publicKey);
   if (cached && now < cached.expireTimeMs - bufferTime) {
-    return;
+    return cached;
   }
 
   const existingInFlight = inFlightTokenRequests.get(publicKey);
   if (existingInFlight) {
-    await existingInFlight;
-    return;
+    return existingInFlight;
+  }
+
+  const privateKey = globalPrivateKeys.get(publicKey);
+  if (!privateKey) {
+    throw new Error(
+      `ClutchHubSdk: generateToken requires proof of key ownership; provide the private key for ${publicKey} via the ClutchHubSdk constructor or setPrivateKey().`
+    );
   }
 
   const query = `
-    mutation GenerateToken($publicKey: String!) {
-      generateToken(publicKey: $publicKey) {
+    mutation GenerateToken($publicKey: String!, $timestamp: Int!, $signature: AuthSignatureInput!) {
+      generateToken(publicKey: $publicKey, timestamp: $timestamp, signature: $signature) {
         token
         expiresAt
       }
@@ -126,9 +198,18 @@ async function ensureTokenInCacheForPublicKey(
   `;
 
   const requestPromise: Promise<TokenCacheEntry> = (async () => {
+    const timestamp = Math.floor(Date.now() / 1000);
+    const signature = await signAuthChallenge(publicKey, timestamp, privateKey);
     const response = await apiClient.post<{ data?: unknown; errors?: { message: string }[] }>(
       '/graphql',
-      { query, variables: { publicKey } }
+      {
+        query,
+        variables: {
+          publicKey,
+          timestamp,
+          signature: { r: signature.r, s: signature.s, v: signature.v },
+        },
+      }
     );
     const body = response.data as { errors?: { message: string }[]; data?: { generateToken: { token: string; expiresAt: number } } };
     if (body.errors?.length) {
@@ -147,7 +228,7 @@ async function ensureTokenInCacheForPublicKey(
 
   inFlightTokenRequests.set(publicKey, requestPromise);
   try {
-    await requestPromise;
+    return await requestPromise;
   } finally {
     inFlightTokenRequests.delete(publicKey);
   }
@@ -172,9 +253,19 @@ export class ClutchHubSdk {
   private token: string | null = null;
   private tokenExpireTime: number = 0;
 
-  constructor(apiUrl: string, publicKey: string) {
+  /**
+   * @param apiUrl Hub API base URL.
+   * @param publicKey Wallet address (0x + 40 hex) or uncompressed public key (130 hex).
+   * @param privateKey Optional wallet private key, required to obtain JWTs: `generateToken`
+   *   demands a signed proof-of-key-ownership challenge. May also be provided later via
+   *   {@link setPrivateKey}. Never sent to the API — only used for local signing.
+   */
+  constructor(apiUrl: string, publicKey: string, privateKey?: string) {
     this.apiClient = axios.create({ baseURL: apiUrl });
     this.publicKey = publicKey;
+    if (privateKey) {
+      globalPrivateKeys.set(publicKey, privateKey);
+    }
   }
 
   /**
@@ -183,6 +274,16 @@ export class ClutchHubSdk {
    */
   public getPublicKey(): string {
     return this.publicKey;
+  }
+
+  /**
+   * Provide (or replace) the private key used to sign `generateToken` auth challenges for
+   * this SDK's public key. Stored in a module-global map keyed by publicKey — like the JWT
+   * cache — so every SDK instance and shared WebSocket connection for this wallet can
+   * authenticate. In-memory only; never sent to the API.
+   */
+  public setPrivateKey(privateKey: string): void {
+    globalPrivateKeys.set(this.publicKey, privateKey);
   }
 
   /**
@@ -300,57 +401,9 @@ export class ClutchHubSdk {
   }
 
   private async ensureAuth(): Promise<void> {
-    const now = Date.now();
-    // Add buffer time to prevent race conditions near token expiration
-    const bufferTime = 30000; // 30 seconds
-
-    const cached = globalTokenCache.get(this.publicKey);
-    if (cached && now < cached.expireTimeMs - bufferTime) {
-      this.token = cached.token;
-      this.tokenExpireTime = cached.expireTimeMs;
-      return;
-    }
-
-    // If another SDK instance is already generating a token, await it.
-    const existingInFlight = inFlightTokenRequests.get(this.publicKey);
-    if (existingInFlight) {
-      const entry = await existingInFlight;
-      this.token = entry.token;
-      this.tokenExpireTime = entry.expireTimeMs;
-      return;
-    }
-
-    const query = `
-      mutation GenerateToken($publicKey: String!) {
-        generateToken(publicKey: $publicKey) {
-          token
-          expiresAt
-        }
-      }
-    `;
-
-    const requestPromise: Promise<TokenCacheEntry> = (async () => {
-      const data = await this.executeGraphQL<{
-        generateToken: { token: string; expiresAt: number }
-      }>(query, { publicKey: this.publicKey });
-
-      const entry: TokenCacheEntry = {
-        token: data.generateToken.token,
-        expireTimeMs: data.generateToken.expiresAt * 1000,
-      };
-
-      globalTokenCache.set(this.publicKey, entry);
-      return entry;
-    })();
-
-    inFlightTokenRequests.set(this.publicKey, requestPromise);
-    try {
-      const entry = await requestPromise;
-      this.token = entry.token;
-      this.tokenExpireTime = entry.expireTimeMs;
-    } finally {
-      inFlightTokenRequests.delete(this.publicKey);
-    }
+    const entry = await ensureTokenInCacheForPublicKey(this.publicKey, this.apiClient);
+    this.token = entry.token;
+    this.tokenExpireTime = entry.expireTimeMs;
   }
 
   /**
@@ -530,7 +583,7 @@ export class ClutchHubSdk {
     const rawHashHex = Buffer.from(hashBytes).toString('hex');
 
     // Sign the transaction hash
-    const signature = await this.signHash(rawHashHex, privateKey);
+    const signature = await signHashHex(rawHashHex, privateKey);
     const rNo0x = stripHexPrefix(signature.r);
     const sNo0x = stripHexPrefix(signature.s);
 
@@ -898,32 +951,6 @@ export class ClutchHubSdk {
           : ax.message ?? 'Faucet request failed';
       return { ok: false, error: String(msg) };
     }
-  }
-
-  /**
-   * Signs the message that the Rust node verifies.
-   *
-   * Rust does:
-   * - message_hash = Keccak256(tx.hash.as_bytes())
-   * - then uses ECDSA recoverable signature with that message_hash
-   */
-  private async signHash(
-    hashHex: string,
-    privateKey: string
-  ): Promise<Signature> {
-    const privKeyClean = stripHexPrefix(privateKey);
-    // `hashHex` is the exact string stored in the Rust transaction `hash` field.
-    // The node verifies by hashing its UTF-8 bytes with Keccak-256.
-    const messageHash = keccak_256(Buffer.from(hashHex, 'utf8'));
-    const sig = await secp.signAsync(messageHash, privKeyClean);
-    const r = sig.r.toString(16).padStart(64, '0');
-    const s = sig.s.toString(16).padStart(64, '0');
-    const v = (typeof sig.recovery === 'number' ? sig.recovery : 0) + 27;
-    return {
-      r: '0x' + r,
-      s: '0x' + s,
-      v,
-    };
   }
 
   /**
