@@ -1,3 +1,19 @@
+## [2.0.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.22.1...v2.0.0) (2026-07-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* authenticated methods (createUnsigned*, submitTransaction,
+getAccountBalance) now require a private key via the constructor or
+setPrivateKey(), and generateToken requires timestamp + signature. Requires
+clutch-hub-api with the matching auth challenge.
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
+
+### Features
+
+* sign auth challenge for generateToken ([02c9f1e](https://github.com/clutchprotocol/clutch-hub-sdk-js/commit/02c9f1efa9db5cdecdb2ebc52744a9714254420b))
+
 ## [1.22.1](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.22.0...v1.22.1) (2026-05-28)
 
 ## [1.22.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.21.0...v1.22.0) (2026-05-22)
