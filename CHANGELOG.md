@@ -1,3 +1,10 @@
+## [2.0.1](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v2.0.0...v2.0.1) (2026-07-24)
+
+
+### Bug Fixes
+
+* **deps:** bump axios to ^1.18.1, patch bn.js — clears all runtime advisories ([b6a3828](https://github.com/clutchprotocol/clutch-hub-sdk-js/commit/b6a3828915979cbf02ee06b1d7721329281349f6))
+
 ## [2.0.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v1.22.1...v2.0.0) (2026-07-02)
 
 
