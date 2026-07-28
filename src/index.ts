@@ -1,5 +1,5 @@
-export * from './types';
-export * from './sdk';
+export * from './types.js';
+export * from './sdk.js';
 export {
   hubGraphqlWsUrl,
   RIDE_REQUEST_GQL_FIELDS,
@@ -7,5 +7,5 @@ export {
   ACTIVE_TRIP_GQL_FIELDS,
   RECENT_TRIP_GQL_FIELDS,
   createHubSubscriptionClient,
-} from './subscriptions';
-export type { SubscriptionHandlers } from './subscriptions'; 
+} from './subscriptions.js';
+export type { SubscriptionHandlers } from './subscriptions.js'; 

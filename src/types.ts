@@ -11,12 +11,13 @@ export interface Coordinates {
 export interface RideRequestArgs {
   pickup: Coordinates;
   dropoff: Coordinates;
-  fare: number;
+  /** CLT base units (1 USD = 1,000,000 CLT). bigint because GraphQL/JSON `number` loses precision above 2^53. */
+  fare: bigint;
 }
 
 export interface RideOfferArgs {
   rideRequestTxHash: string;
-  fare: number;
+  fare: bigint;
 }
 
 export interface RideAcceptanceArgs {
@@ -25,7 +26,7 @@ export interface RideAcceptanceArgs {
 
 export interface RidePayArgs {
   rideAcceptanceTxHash: string;
-  fare: number;
+  fare: bigint;
 }
 
 export interface RideCancelArgs {
@@ -34,6 +35,26 @@ export interface RideCancelArgs {
 
 export interface RideRequestCancelArgs {
   rideRequestTxHash: string;
+}
+
+export interface BurnArgs {
+  /** CLT base units to burn. */
+  amount: bigint;
+  /** hex(keccak256(intent_id)) for treasury redemptions; omit for a plain burn. */
+  redemptionRef?: string;
+}
+
+/**
+ * Genesis-committed consensus parameters (hub `chainInfo` query). Every numeric field is a
+ * `String` on the wire — `total_supply` is the one value that can exceed 2^53, and one rule
+ * for every field here is cheaper to remember than a per-field exception.
+ */
+export interface ChainInfo {
+  chainId: bigint;
+  isTestnet: boolean;
+  txFee: bigint;
+  totalSupply: bigint;
+  mintAuthority: string;
 }
 
 /** Response from POST /faucet when the Hub API faucet is enabled (test networks). */
@@ -57,7 +78,7 @@ export interface AvailableRideRequest {
   txHash: string;
   pickupLocation: Coordinates;
   dropoffLocation: Coordinates;
-  fare: number;
+  fare: bigint;
   passengerAddress: string;
 }
 
@@ -65,7 +86,7 @@ export interface AvailableRideRequest {
 export interface AvailableRideOffer {
   txHash: string;
   rideRequestTxHash: string;
-  fare: number;
+  fare: bigint;
   driverAddress: string;
 }
 
@@ -76,9 +97,9 @@ export interface AvailableActiveTrip {
   rideRequestTxHash: string;
   pickupLocation: Coordinates;
   dropoffLocation: Coordinates;
-  fare: number;
+  fare: bigint;
   /** Amount already paid to the driver (partial payments). */
-  farePaid: number;
+  farePaid: bigint;
   driverAddress: string;
   passengerAddress: string;
 }
