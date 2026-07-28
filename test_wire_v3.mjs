@@ -3,7 +3,16 @@ import { ClutchHubSdk, verifyUnsignedTransaction, formatUsd } from './dist/index
 import assert from 'node:assert';
 import * as rlp from 'rlp';
 
-const sdk = new ClutchHubSdk('http://unused', '0x9b6e8afff8329743cac73dbef83ca3cbf9a74c20');
+// chainId is pinned here from "app config", the way a real caller must supply it — never read
+// back from the hub, which is the untrusted party the verification exists to defend against.
+// Omitting it makes `signTransaction(.., expected)` throw rather than skip the replay check.
+const CHAIN_ID = 2077;
+const sdk = new ClutchHubSdk(
+  'http://unused',
+  '0x9b6e8afff8329743cac73dbef83ca3cbf9a74c20',
+  undefined,
+  CHAIN_ID,
+);
 const unsigned = {
   from: '0x9b6e8afff8329743cac73dbef83ca3cbf9a74c20',
   nonce: 1,
@@ -65,6 +74,17 @@ assert.throws(() =>
     { ...unsigned, chain_id: 1 },
     { type: 'Burn', amount: 5000000n, chainId: 2077 },
   ),
+);
+
+// Verification must FAIL CLOSED when no chain is pinned. Verifying everything except the chain
+// would leave the caller believing the tx was checked while the replay guard silently sat out.
+const unpinned = new ClutchHubSdk('http://unused', '0x9b6e8afff8329743cac73dbef83ca3cbf9a74c20');
+await assert.rejects(
+  () => unpinned.signTransaction(unsigned, '0883ddd3d07303b87c954b0c9383f7b78f45e002520fc03a8adc80595dbf6509', {
+    type: 'Burn', amount: 5000000n,
+  }),
+  /pinned chainId/,
+  'signing with expectations but no pinned chainId must throw, not skip the chain check',
 );
 
 assert.equal(formatUsd(5000000n), '$5.00');

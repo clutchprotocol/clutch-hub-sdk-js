@@ -759,14 +759,28 @@ export class ClutchHubSdk {
   ): Promise<Signature & { rawTransaction: string, txHash: string }> {
     if (expected) {
       // Inject the checks the caller gets "for free": its own address form, and this SDK
-      // instance's pinned chainId IF the constructor was actually given one — an unconfigured
-      // chainId means nothing was pinned, so there's nothing to check (as opposed to silently
-      // enforcing a phantom "chain 0" against every real chain_id). Mismatch throws before
-      // anything is signed.
+      // instance's pinned chainId. Mismatch throws before anything is signed.
+      //
+      // Fail closed when no chainId is pinned. Verifying everything *except* the chain is the
+      // worst available outcome: the caller believes the transaction was validated while the
+      // one check that stops a cross-chain replay quietly did not run. Enforcing a phantom
+      // "chain 0" would be equally wrong, so demand the pin rather than guess.
+      //
+      // Nearly unreachable in practice — `ensureAuth` needs the real chainId for the
+      // chain-bound challenge, so an unconfigured SDK cannot obtain a token at all. This turns
+      // that confusing downstream auth failure into a precise message at the right place.
+      const pinnedChainId =
+        expected.chainId ?? (this.chainIdConfigured ? this.chainId : undefined);
+      if (pinnedChainId === undefined) {
+        throw new Error(
+          'cannot verify an unsigned transaction without a pinned chainId: pass chainId to the ' +
+          'ClutchHubSdk constructor (from your own app config, never from the hub) or set expected.chainId'
+        );
+      }
       verifyUnsignedTransaction(unsignedTx, {
         ...expected,
         from: expected.from ?? this.publicKey,
-        chainId: expected.chainId ?? (this.chainIdConfigured ? this.chainId : undefined),
+        chainId: pinnedChainId,
       });
     }
 
