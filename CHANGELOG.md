@@ -1,3 +1,35 @@
+## [3.0.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v2.0.1...v3.0.0) (2026-07-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* verifying an unsigned transaction now requires a chainId
+pinned via the ClutchHubSdk constructor or expected.chainId.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+* signTransaction's hash preimage and signed payload
+both gained chain_id (inserted after nonce; everything after it shifts
+by one index). fare/amount/balance public types moved from number to
+bigint; the corresponding GraphQL mutation variables changed from
+Int to String. buildAuthChallengeMessage/authChallengeHashHex/
+signAuthChallenge gained a required leading chainId parameter and the
+auth challenge string format changed — no fallback to the old
+two-field format. Requires clutch-node treasury-break and a hub-api
+build with chainInfo/createUnsignedBurn. The orchestrator REST client
+described in the task brief was deliberately not built: it targets a
+payment-orchestrator service that does not exist yet.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+
+### Features
+
+* v3 wire format — chain_id in signing, bigint amounts, tx verification, Burn ([b677894](https://github.com/clutchprotocol/clutch-hub-sdk-js/commit/b677894d92cd39a9444bec93b09226d775145dfd))
+
+
+### Bug Fixes
+
+* fail closed when verifying an unsigned tx with no pinned chainId ([353a5f2](https://github.com/clutchprotocol/clutch-hub-sdk-js/commit/353a5f278bb2192cdfa4dbed9c4d850cd1a06042))
+
 ## [2.0.1](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v2.0.0...v2.0.1) (2026-07-24)
 
 
