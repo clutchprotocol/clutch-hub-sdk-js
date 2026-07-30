@@ -12,13 +12,14 @@ import {
   RIDE_OFFER_GQL_FIELDS,
   RIDE_REQUEST_GQL_FIELDS,
   type SubscriptionHandlers,
-} from './subscriptions';
+} from './subscriptions.js';
 import {
   AvailableRideRequest,
   AvailableRideOffer,
   AvailableActiveTrip,
   AvailableCompletedTrip,
   AvailableRecentTrip,
+  BurnArgs,
   FaucetResponse,
   MapBounds,
   RideRequestArgs,
@@ -28,7 +29,7 @@ import {
   RideCancelArgs,
   RideRequestCancelArgs,
   Signature,
-} from './types';
+} from './types.js';
 
 /** Strip 0x/0X prefix - hex parsers (e.g. @noble/secp256k1) do not accept it. Exported for consumers. */
 export function stripHexPrefix(hex: string): string {
@@ -94,11 +95,13 @@ export const AUTH_CHALLENGE_PREFIX = 'clutch-auth';
 
 /**
  * Canonical auth challenge message for `generateToken`. Must match clutch-hub-api
- * (`hub::auth::build_auth_challenge_message`) byte-for-byte: the exact `publicKey` string
- * sent as the mutation argument and the timestamp in decimal unix seconds.
+ * (`hub::auth::build_auth_challenge_message`) byte-for-byte: `clutch-auth:{chainId}:{publicKey}:{timestamp}`.
+ * `chainId` binds the signed challenge to this hub's chain — without it, a challenge captured
+ * on one chain would authenticate the same key on any other Clutch hub within the clock-skew
+ * window. Breaking change from the pre-treasury (chainId-less) format; no fallback.
  */
-export function buildAuthChallengeMessage(publicKey: string, timestamp: number): string {
-  return `${AUTH_CHALLENGE_PREFIX}:${publicKey}:${timestamp}`;
+export function buildAuthChallengeMessage(chainId: number, publicKey: string, timestamp: number): string {
+  return `${AUTH_CHALLENGE_PREFIX}:${chainId}:${publicKey}:${timestamp}`;
 }
 
 /**
@@ -106,8 +109,8 @@ export function buildAuthChallengeMessage(publicKey: string, timestamp: number):
  * The signature is then computed over the UTF-8 bytes of this hex string (see `signHashHex`),
  * the same convention used for transaction hashes.
  */
-export function authChallengeHashHex(publicKey: string, timestamp: number): string {
-  const message = buildAuthChallengeMessage(publicKey, timestamp);
+export function authChallengeHashHex(chainId: number, publicKey: string, timestamp: number): string {
+  const message = buildAuthChallengeMessage(chainId, publicKey, timestamp);
   return Buffer.from(keccak_256(Buffer.from(message, 'utf8'))).toString('hex');
 }
 
@@ -135,11 +138,12 @@ async function signHashHex(hashHex: string, privateKey: string): Promise<Signatu
  * @param timestamp Unix seconds; the Hub API rejects timestamps more than ±120s from server time.
  */
 export async function signAuthChallenge(
+  chainId: number,
   publicKey: string,
   timestamp: number,
   privateKey: string
 ): Promise<Signature> {
-  return signHashHex(authChallengeHashHex(publicKey, timestamp), privateKey);
+  return signHashHex(authChallengeHashHex(chainId, publicKey, timestamp), privateKey);
 }
 
 type SharedGraphqlWsEntry = { client: Client; refcount: number };
@@ -166,7 +170,8 @@ function sharedGraphqlWsCacheKey(baseURL: string, publicKey: string): string {
  */
 async function ensureTokenInCacheForPublicKey(
   publicKey: string,
-  apiClient: AxiosInstance
+  apiClient: AxiosInstance,
+  chainId: number
 ): Promise<TokenCacheEntry> {
   const now = Date.now();
   const bufferTime = 30000;
@@ -199,7 +204,7 @@ async function ensureTokenInCacheForPublicKey(
 
   const requestPromise: Promise<TokenCacheEntry> = (async () => {
     const timestamp = Math.floor(Date.now() / 1000);
-    const signature = await signAuthChallenge(publicKey, timestamp, privateKey);
+    const signature = await signAuthChallenge(chainId, publicKey, timestamp, privateKey);
     const response = await apiClient.post<{ data?: unknown; errors?: { message: string }[] }>(
       '/graphql',
       {
@@ -241,6 +246,145 @@ export interface UnsignedTransaction {
   data: any;
   from: string;
   nonce: number;
+  /** u64 on the wire; kept as `number` here since real chain ids fit well under 2^53. */
+  chain_id: number;
+}
+
+/**
+ * Expectations `signTransaction` verifies an unsigned blob against before signing it — see
+ * `verifyUnsignedTransaction`. The hub is untrusted in this design (that's the entire point of
+ * client-side signing), so a caller who knows what it asked for should say so and have the SDK
+ * check the hub's answer instead of signing it blind.
+ */
+export interface ExpectedTx {
+  type: 'RideRequest' | 'RideOffer' | 'RidePay' | 'RideAcceptance' | 'RideCancel' | 'RideRequestCancel' | 'Burn';
+  /** The wallet's own address/pk form; `signTransaction` fills this in automatically. */
+  from?: string;
+  /** Pinned CLIENT-side (app config, e.g. 2077) — never sourced from the hub's own `chainInfo`. */
+  chainId?: number;
+  /** RideRequest/RideOffer/RidePay. */
+  fare?: bigint;
+  /** Burn. */
+  amount?: bigint;
+  /** The acceptance/offer/request hash the caller itself passed in. */
+  refTxHash?: string;
+  /** Burn. */
+  redemptionRef?: string;
+}
+
+/**
+ * Result of a passing `verifyUnsignedTransaction` check.
+ */
+export interface VerifiedTx {
+  /**
+   * The referrer the hub injected into this transaction, if any. The hub picks the referrer
+   * server-side and there is currently no signed-quote flow to pin it client-side, so this
+   * value CANNOT be verified — it is surfaced only so a caller can display it to the user
+   * before they sign. Displaying it is the interim mitigation, not a fix; full referrer
+   * pinning needs the signed-quote flow (a later plan).
+   */
+  referrer: string | null;
+}
+
+/** Reads `arguments.<snake>` falling back to `arguments.<camel>`, matching `encodeFunctionCall`'s tolerance for either shape. */
+function readArg(argsData: any, snakeKey: string, camelKey: string): unknown {
+  return argsData?.[snakeKey] ?? argsData?.[camelKey];
+}
+
+/**
+ * The reference-hash field each transaction type carries, if any (mirrors the cases in
+ * `encodeFunctionCall`). Returns `undefined` for types with no single reference hash
+ * (RideRequest, Burn).
+ */
+function refHashFromArgs(type: ExpectedTx['type'], argsData: any): string | undefined {
+  switch (type) {
+    case 'RideOffer':
+      return readArg(argsData, 'ride_request_transaction_hash', 'rideRequestTxHash') as string | undefined;
+    case 'RideAcceptance':
+      return readArg(argsData, 'ride_offer_transaction_hash', 'rideOfferTxHash') as string | undefined;
+    case 'RidePay':
+      return readArg(argsData, 'ride_acceptance_transaction_hash', 'rideAcceptanceTxHash') as string | undefined;
+    case 'RideCancel':
+      return readArg(argsData, 'ride_acceptance_transaction_hash', 'rideAcceptanceTxHash') as string | undefined;
+    case 'RideRequestCancel':
+      return readArg(argsData, 'ride_request_transaction_hash', 'rideRequestTxHash') as string | undefined;
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Verify an unsigned-transaction blob from the hub against what the caller actually asked for,
+ * before it gets signed. Pure and side-effect-free.
+ *
+ * WHY THIS EXISTS: the hub is the untrusted party in this design — the private key never
+ * leaves the client precisely because the hub is not trusted — yet without this check a
+ * compromised hub can alter the fare, swap the referrer, or hand back a different chain's id,
+ * and the SDK would sign whatever it was given. This closes the blind-signing hole for every
+ * field it's possible to pin client-side. It does NOT close the referrer hole (see
+ * `VerifiedTx.referrer`).
+ *
+ * Any mismatch throws `Error('unsigned tx does not match request: <field>')` naming the
+ * offending field.
+ */
+export function verifyUnsignedTransaction(
+  unsignedTx: UnsignedTransaction,
+  expected: ExpectedTx
+): VerifiedTx {
+  const fail = (field: string): never => {
+    throw new Error(`unsigned tx does not match request: ${field}`);
+  };
+
+  if (expected.from !== undefined && stripHexPrefix(unsignedTx.from).toLowerCase() !== stripHexPrefix(expected.from).toLowerCase()) {
+    fail('from');
+  }
+
+  // Presence-only checking would let a compromised hub hand back a different chain's id and
+  // defeat the exact replay protection chain_id was added to close — so this is a strict
+  // equality check whenever the caller pinned a chainId, not merely "is chain_id present".
+  if (expected.chainId !== undefined && Number(unsignedTx.chain_id) !== expected.chainId) {
+    fail('chain_id');
+  }
+
+  const type = (unsignedTx.data?.function_call_type ?? unsignedTx.data?.type) as ExpectedTx['type'] | undefined;
+  if (type !== expected.type) {
+    fail('function_call_type');
+  }
+
+  const argsData = unsignedTx.data?.arguments ?? unsignedTx.data ?? {};
+
+  if (expected.fare !== undefined) {
+    const fareRaw = readArg(argsData, 'fare', 'fare');
+    if (fareRaw === undefined || BigInt(fareRaw as string | number | bigint) !== expected.fare) {
+      fail('fare');
+    }
+  }
+
+  if (expected.amount !== undefined) {
+    const amountRaw = readArg(argsData, 'amount', 'amount');
+    if (amountRaw === undefined || BigInt(amountRaw as string | number | bigint) !== expected.amount) {
+      fail('amount');
+    }
+  }
+
+  if (expected.refTxHash !== undefined) {
+    const actualRef = refHashFromArgs(expected.type, argsData);
+    if (actualRef === undefined || normalizeTxHashForRlp(String(actualRef)) !== normalizeTxHashForRlp(expected.refTxHash)) {
+      fail('refTxHash');
+    }
+  }
+
+  if (expected.redemptionRef !== undefined) {
+    const actualRefRaw = readArg(argsData, 'redemption_ref', 'redemptionRef');
+    const actualRef = actualRefRaw != null && String(actualRefRaw).length > 0 ? String(actualRefRaw) : '';
+    if (actualRef !== expected.redemptionRef) {
+      fail('redemptionRef');
+    }
+  }
+
+  const referrerRaw = argsData?.referrer;
+  const referrer = referrerRaw != null && String(referrerRaw).length > 0 ? String(referrerRaw) : null;
+  return { referrer };
 }
 
 /**
@@ -252,6 +396,9 @@ export class ClutchHubSdk {
   private publicKey: string;
   private token: string | null = null;
   private tokenExpireTime: number = 0;
+  private chainId: number;
+  /** Whether the caller actually passed a `chainId` (vs. the 0 default) — see `signTransaction`. */
+  private chainIdConfigured: boolean;
 
   /**
    * @param apiUrl Hub API base URL.
@@ -259,10 +406,19 @@ export class ClutchHubSdk {
    * @param privateKey Optional wallet private key, required to obtain JWTs: `generateToken`
    *   demands a signed proof-of-key-ownership challenge. May also be provided later via
    *   {@link setPrivateKey}. Never sent to the API — only used for local signing.
+   * @param chainId This chain's id (e.g. 2077 for the app's own config), used for the
+   *   chain-bound auth challenge and as the default `expected.chainId` pin in
+   *   {@link signTransaction}'s `verifyUnsignedTransaction` check. Get this from app config,
+   *   never from the hub's own `chainInfo` response — asking the untrusted party what chain
+   *   it is defeats the check chain_id exists to provide. If omitted, `signTransaction` still
+   *   verifies every other `expected` field but skips the chain_id pin (nothing was pinned to
+   *   check against) rather than failing every real transaction against a phantom "chain 0".
    */
-  constructor(apiUrl: string, publicKey: string, privateKey?: string) {
+  constructor(apiUrl: string, publicKey: string, privateKey?: string, chainId?: number) {
     this.apiClient = axios.create({ baseURL: apiUrl });
     this.publicKey = publicKey;
+    this.chainId = chainId ?? 0;
+    this.chainIdConfigured = chainId !== undefined;
     if (privateKey) {
       globalPrivateKeys.set(publicKey, privateKey);
     }
@@ -325,11 +481,12 @@ export class ClutchHubSdk {
     if (!entry) {
       const pk = this.publicKey;
       const apiClient = this.apiClient;
+      const chainId = this.chainId;
       const client = createHubSubscriptionClient({
         url: hubGraphqlWsUrl(base),
         connectionParams: async () => {
           try {
-            await ensureTokenInCacheForPublicKey(pk, apiClient);
+            await ensureTokenInCacheForPublicKey(pk, apiClient, chainId);
           } catch {
             /* public list subscriptions work without JWT */
           }
@@ -401,9 +558,19 @@ export class ClutchHubSdk {
   }
 
   private async ensureAuth(): Promise<void> {
-    const entry = await ensureTokenInCacheForPublicKey(this.publicKey, this.apiClient);
+    const entry = await ensureTokenInCacheForPublicKey(this.publicKey, this.apiClient, this.chainId);
     this.token = entry.token;
     this.tokenExpireTime = entry.expireTimeMs;
+  }
+
+  /**
+   * Public wrapper around `ensureAuth`: resolves (fetching if needed) a valid JWT for this
+   * wallet and returns it as an `Authorization: Bearer <token>` header ready to attach to a
+   * hand-rolled request (e.g. an orchestrator REST client that reuses this SDK's auth).
+   */
+  public async getAuthHeaders(): Promise<Record<string, string>> {
+    await this.ensureAuth();
+    return { ...this.authHeaders };
   }
 
   /**
@@ -421,7 +588,7 @@ export class ClutchHubSdk {
     const query = `
       mutation CreateUnsignedRideRequest(
         $pickupLatitude: Float!, $pickupLongitude: Float!,
-        $dropoffLatitude: Float!, $dropoffLongitude: Float!, $fare: Int!
+        $dropoffLatitude: Float!, $dropoffLongitude: Float!, $fare: String!
       ) {
         createUnsignedRideRequest(
           pickupLatitude: $pickupLatitude,
@@ -437,7 +604,7 @@ export class ClutchHubSdk {
       pickupLongitude: pickupLng,
       dropoffLatitude: dropoffLat,
       dropoffLongitude: dropoffLng,
-      fare: args.fare,
+      fare: args.fare.toString(),
     };
     const result = await this.executeGraphQL<{
       createUnsignedRideRequest: UnsignedTransaction
@@ -455,7 +622,7 @@ export class ClutchHubSdk {
     await this.ensureAuth();
     const query = `
       mutation CreateUnsignedRideOffer(
-        $rideRequestTransactionHash: String!, $fare: Int!
+        $rideRequestTransactionHash: String!, $fare: String!
       ) {
         createUnsignedRideOffer(
           rideRequestTransactionHash: $rideRequestTransactionHash,
@@ -465,7 +632,7 @@ export class ClutchHubSdk {
     `;
     const variables = {
       rideRequestTransactionHash: args.rideRequestTxHash,
-      fare: args.fare,
+      fare: args.fare.toString(),
     };
     const result = await this.executeGraphQL<{
       createUnsignedRideOffer: UnsignedTransaction
@@ -503,7 +670,7 @@ export class ClutchHubSdk {
     const query = `
       mutation CreateUnsignedRidePay(
         $rideAcceptanceTransactionHash: String!,
-        $fare: Int!
+        $fare: String!
       ) {
         createUnsignedRidePay(
           rideAcceptanceTransactionHash: $rideAcceptanceTransactionHash,
@@ -513,7 +680,7 @@ export class ClutchHubSdk {
     `;
     const variables = {
       rideAcceptanceTransactionHash: args.rideAcceptanceTxHash,
-      fare: args.fare,
+      fare: args.fare.toString(),
     };
     const result = await this.executeGraphQL<{
       createUnsignedRidePay: UnsignedTransaction;
@@ -562,21 +729,72 @@ export class ClutchHubSdk {
   }
 
   /**
+   * Fetches an unsigned Burn transaction. Burns `amount` CLT from the caller's balance,
+   * optionally tagged with a treasury `redemptionRef` (hex(keccak256(intent_id))).
+   */
+  public async createUnsignedBurn(args: BurnArgs): Promise<UnsignedTransaction> {
+    await this.ensureAuth();
+    const query = `
+      mutation CreateUnsignedBurn($amount: String!, $redemptionRef: String) {
+        createUnsignedBurn(amount: $amount, redemptionRef: $redemptionRef)
+      }
+    `;
+    const variables = {
+      amount: args.amount.toString(),
+      redemptionRef: args.redemptionRef ?? null,
+    };
+    const result = await this.executeGraphQL<{
+      createUnsignedBurn: UnsignedTransaction;
+    }>(query, variables);
+    return result.createUnsignedBurn;
+  }
+
+  /**
    * Signs a transaction and returns the signature and raw RLP-encoded payload.
    */
   public async signTransaction(
     unsignedTx: UnsignedTransaction,
-    privateKey: string
+    privateKey: string,
+    expected?: ExpectedTx
   ): Promise<Signature & { rawTransaction: string, txHash: string }> {
+    if (expected) {
+      // Inject the checks the caller gets "for free": its own address form, and this SDK
+      // instance's pinned chainId. Mismatch throws before anything is signed.
+      //
+      // Fail closed when no chainId is pinned. Verifying everything *except* the chain is the
+      // worst available outcome: the caller believes the transaction was validated while the
+      // one check that stops a cross-chain replay quietly did not run. Enforcing a phantom
+      // "chain 0" would be equally wrong, so demand the pin rather than guess.
+      //
+      // Nearly unreachable in practice — `ensureAuth` needs the real chainId for the
+      // chain-bound challenge, so an unconfigured SDK cannot obtain a token at all. This turns
+      // that confusing downstream auth failure into a precise message at the right place.
+      const pinnedChainId =
+        expected.chainId ?? (this.chainIdConfigured ? this.chainId : undefined);
+      if (pinnedChainId === undefined) {
+        throw new Error(
+          'cannot verify an unsigned transaction without a pinned chainId: pass chainId to the ' +
+          'ClutchHubSdk constructor (from your own app config, never from the hub) or set expected.chainId'
+        );
+      }
+      verifyUnsignedTransaction(unsignedTx, {
+        ...expected,
+        from: expected.from ?? this.publicKey,
+        chainId: pinnedChainId,
+      });
+    }
+
     // Encode the function call into a nested array for RLP
     const callDataArray = this.encodeFunctionCall(unsignedTx.data);
 
-    // RLP-encode unsigned transaction [from, nonce, data]
-    // Ensure from field is properly encoded as string (remove 0x prefix for consistency)
+    // RLP-encode unsigned transaction [from (no 0x), nonce, chain_id, data] — node Plan A
+    // format. chain_id sits between nonce and data in BOTH the hash preimage and the full
+    // signed payload below; the node's `calculate_hash` computes this exact 4-item list.
     const fromForUnsigned = stripHexPrefix(unsignedTx.from);
     const unsignedPayload = rlp.encode([
       fromForUnsigned,
       unsignedTx.nonce,
+      unsignedTx.chain_id,
       callDataArray
     ]);
     const hashBytes = keccak_256(unsignedPayload);
@@ -587,12 +805,14 @@ export class ClutchHubSdk {
     const rNo0x = stripHexPrefix(signature.r);
     const sNo0x = stripHexPrefix(signature.s);
 
-    // RLP-encode full signed transaction to match Rust: [from, nonce, r, s, v, hash, data]
-    // Ensure from field is properly encoded as string (remove 0x prefix for consistency)
+    // RLP-encode full signed transaction to match Rust: [from, nonce, chain_id, r, s, v, hash, data]
+    // — chain_id inserted after nonce, same index as the unsigned preimage; everything after
+    // it shifts by one versus the pre-treasury 7-item wire format.
     const fromNo0x = stripHexPrefix(unsignedTx.from);
     const fullPayload = rlp.encode([
       fromNo0x,
       unsignedTx.nonce,
+      unsignedTx.chain_id,
       rNo0x,
       sNo0x,
       signature.v,
@@ -758,9 +978,9 @@ export class ClutchHubSdk {
       }
     `;
     const result = await this.executeGraphQL<{
-      listRideRequests: AvailableRideRequest[];
+      listRideRequests: (Omit<AvailableRideRequest, 'fare'> & { fare: string })[];
     }>(query, { bounds: bounds ?? null });
-    return result.listRideRequests;
+    return result.listRideRequests.map((r) => ({ ...r, fare: BigInt(r.fare) }));
   }
 
   /**
@@ -780,9 +1000,9 @@ export class ClutchHubSdk {
       }
     `;
     const result = await this.executeGraphQL<{
-      listRideOffers: AvailableRideOffer[];
+      listRideOffers: (Omit<AvailableRideOffer, 'fare'> & { fare: string })[];
     }>(query, { rideRequestTxHash });
-    return result.listRideOffers;
+    return result.listRideOffers.map((r) => ({ ...r, fare: BigInt(r.fare) }));
   }
 
   /**
@@ -809,12 +1029,12 @@ export class ClutchHubSdk {
       }
     `;
     const result = await this.executeGraphQL<{
-      listActiveTrips: AvailableActiveTrip[];
+      listActiveTrips: (Omit<AvailableActiveTrip, 'fare' | 'farePaid'> & { fare: string; farePaid: string })[];
     }>(query, {
       driverAddress: options?.driverAddress ?? null,
       passengerAddress: options?.passengerAddress ?? null,
     });
-    return result.listActiveTrips;
+    return result.listActiveTrips.map((r) => ({ ...r, fare: BigInt(r.fare), farePaid: BigInt(r.farePaid) }));
   }
 
   /**
@@ -841,12 +1061,12 @@ export class ClutchHubSdk {
       }
     `;
     const result = await this.executeGraphQL<{
-      listCompletedTrips: AvailableCompletedTrip[];
+      listCompletedTrips: (Omit<AvailableCompletedTrip, 'fare' | 'farePaid'> & { fare: string; farePaid: string })[];
     }>(query, {
       driverAddress: options?.driverAddress ?? null,
       passengerAddress: options?.passengerAddress ?? null,
     });
-    return result.listCompletedTrips;
+    return result.listCompletedTrips.map((r) => ({ ...r, fare: BigInt(r.fare), farePaid: BigInt(r.farePaid) }));
   }
 
   /**
@@ -865,18 +1085,18 @@ export class ClutchHubSdk {
       }
     `;
     const result = await this.executeGraphQL<{
-      listRecentTrips: AvailableRecentTrip[];
+      listRecentTrips: (Omit<AvailableRecentTrip, 'fare' | 'farePaid'> & { fare: string; farePaid: string })[];
     }>(query, {
       driverAddress: options?.driverAddress ?? null,
       passengerAddress: options?.passengerAddress ?? null,
     });
-    return result.listRecentTrips;
+    return result.listRecentTrips.map((r) => ({ ...r, fare: BigInt(r.fare), farePaid: BigInt(r.farePaid) }));
   }
 
   /**
    * Fetches the current account balance for a public key.
    */
-  public async getAccountBalance(publicKey?: string): Promise<number> {
+  public async getAccountBalance(publicKey?: string): Promise<bigint> {
     await this.ensureAuth();
     const query = `
       query AccountBalance($publicKey: String) {
@@ -884,9 +1104,9 @@ export class ClutchHubSdk {
       }
     `;
     const result = await this.executeGraphQL<{
-      accountBalance: number;
+      accountBalance: string;
     }>(query, { publicKey: publicKey ?? this.publicKey });
-    return result.accountBalance;
+    return BigInt(result.accountBalance);
   }
 
   /**
@@ -895,7 +1115,7 @@ export class ClutchHubSdk {
    */
   public subscribeAccountBalance(
     options: { publicKey?: string } | undefined,
-    handlers: SubscriptionHandlers<number>
+    handlers: SubscriptionHandlers<bigint>
   ): () => void {
     const { client, release } = this.acquireGraphqlWsClient();
     const query = `
@@ -912,9 +1132,16 @@ export class ClutchHubSdk {
         next: (res) => {
           const value = (res.data as { accountBalanceUpdated?: number | string | null | undefined })
             ?.accountBalanceUpdated;
-          const asNumber = typeof value === 'number' ? value : Number(value);
-          if (Number.isFinite(asNumber)) {
-            handlers.onData(asNumber);
+          // BigInt(value) throws on null/undefined/non-integer input rather than yielding NaN
+          // (Number's failure mode), so the same "silently skip a bad payload" guard needs a
+          // try/catch instead of Number.isFinite.
+          if (value == null) {
+            return;
+          }
+          try {
+            handlers.onData(BigInt(value));
+          } catch {
+            /* malformed balance payload — skip, same as the old Number.isFinite guard */
           }
         },
         error: (err) => handlers.onError?.(err as Error),
@@ -974,7 +1201,7 @@ export class ClutchHubSdk {
         const args = [
           [pickupLatBits, pickupLngBits],
           [dropoffLatBits, dropoffLngBits],
-          fare,
+          BigInt(fare),
           referrerForRlp,
         ];
         // Return the array: [tag, arguments]
@@ -983,7 +1210,7 @@ export class ClutchHubSdk {
       case 'RideOffer': {
         const argsData = data.arguments || data;
         const rideRequestTxHash = argsData.ride_request_transaction_hash ?? argsData.rideRequestTxHash ?? '';
-        const fare = argsData.fare ?? 0;
+        const fare = BigInt(argsData.fare ?? 0);
         const referrerRaw = argsData.referrer;
         const referrerForRlp =
           referrerRaw != null && String(referrerRaw).length > 0
@@ -1002,7 +1229,7 @@ export class ClutchHubSdk {
         const argsData = data.arguments || data;
         const rideAcceptanceTxHash =
           argsData.ride_acceptance_transaction_hash ?? argsData.rideAcceptanceTxHash ?? '';
-        const fare = argsData.fare ?? 0;
+        const fare = BigInt(argsData.fare ?? 0);
         const args = [normalizeTxHashForRlp(String(rideAcceptanceTxHash)), fare];
         return [4, args];
       }
@@ -1019,6 +1246,13 @@ export class ClutchHubSdk {
           argsData.ride_request_transaction_hash ?? argsData.rideRequestTxHash ?? '';
         const args = [normalizeTxHashForRlp(String(rideRequestTxHash))];
         return [8, args];
+      }
+      case 'Burn': {
+        const argsData = data.arguments || data;
+        const amount = BigInt(argsData.amount ?? 0);
+        const refRaw = argsData.redemption_ref ?? argsData.redemptionRef;
+        const refForRlp = refRaw != null && String(refRaw).length > 0 ? String(refRaw) : '';
+        return [7, [amount, refForRlp]];
       }
       default:
         throw new Error(`Unsupported FunctionCall type: ${type}`);
@@ -1038,4 +1272,20 @@ export class ClutchHubSdk {
     const low = BigInt(ClutchHubSdk.floatView.getUint32(4, false));
     return (high << BigInt(32)) | low;
   }
-} 
+}
+
+/**
+ * Formats CLT base units (micro-USD, at the 1 USD = 1,000,000 CLT peg) as a `$`-prefixed
+ * decimal string for display — integer math only, never floats, since a float division would
+ * reintroduce the precision loss bigint amounts exist to avoid. Cents are floored (truncated),
+ * matching how the treasury peg treats CLT as an integer.
+ */
+export function formatUsd(microUsd: bigint): string {
+  const negative = microUsd < 0n;
+  const abs = negative ? -microUsd : microUsd;
+  const cents = abs / 10000n; // 1,000,000 microUsd = 1 USD = 100 cents
+  const dollars = cents / 100n;
+  const remainderCents = cents % 100n;
+  const sign = negative ? '-' : '';
+  return `${sign}$${dollars.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.${remainderCents.toString().padStart(2, '0')}`;
+}
