@@ -1,3 +1,24 @@
+## [4.0.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v3.0.0...v4.0.0) (2026-09-04)
+
+
+### ⚠ BREAKING CHANGES
+
+* `requestFaucet` is removed from `ClutchHubSdk` and the
+`FaucetResponse` type is no longer exported. There is no replacement — the
+server endpoint is gone; CLT is obtained by depositing USDT.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+
+### Features
+
+* remove requestFaucet ([a8186f5](https://github.com/clutchprotocol/clutch-hub-sdk-js/commit/a8186f555588f781a8c7a1e905e724b343ae2948))
+
+
+### Reverts
+
+* the 4.0.0 release commit that npm rejected ([ba16f76](https://github.com/clutchprotocol/clutch-hub-sdk-js/commit/ba16f76e6e49b9153dcd0c5e954e926c9f0f0dee))
+* the 4.0.0 release commit, which npm rejected ([fd456d9](https://github.com/clutchprotocol/clutch-hub-sdk-js/commit/fd456d98c2f70a3f8d86da82eaaa84289919a0d6))
+
 ## [3.0.0](https://github.com/clutchprotocol/clutch-hub-sdk-js/compare/v2.0.1...v3.0.0) (2026-07-30)
 
 
