@@ -57,14 +57,6 @@ export interface ChainInfo {
   mintAuthority: string;
 }
 
-/** Response from POST /faucet when the Hub API faucet is enabled (test networks). */
-export interface FaucetResponse {
-  ok: boolean;
-  amount_clt?: number;
-  node?: unknown;
-  error?: string;
-}
-
 /** Map viewport bounds for filtering ride requests by pickup location. */
 export interface MapBounds {
   minLat: number;

@@ -10,13 +10,13 @@ Only four source files — the SDK is deliberately small:
 
 - `src/sdk.ts` — everything important: `ClutchHubSdk` class, JWT auth caching, signing/hashing,
   RLP encoding (`encodeFunctionCall`), all GraphQL queries/mutations/subscriptions inline as
-  template strings, faucet helper. Also exports `stripHexPrefix`, `normalizeTxHashForRlp`,
+  template strings. Also exports `stripHexPrefix`, `normalizeTxHashForRlp`,
   `UnsignedTransaction`.
 - `src/subscriptions.ts` — `hubGraphqlWsUrl()` (HTTP base URL → `ws(s)://…/graphql/ws`),
   `createHubSubscriptionClient()` (graphql-ws client: `lazy: false`, infinite retry, 10s keepAlive),
   shared GraphQL field-selection constants (`RIDE_REQUEST_GQL_FIELDS` etc.), `SubscriptionHandlers<T>`.
 - `src/types.ts` — arg/result interfaces (`RideRequestArgs`, `AvailableActiveTrip`, `MapBounds`,
-  `Signature`, `FaucetResponse`, …).
+  `Signature`, …).
 - `src/index.ts` — barrel re-exports. New public symbols must be reachable from here.
 
 There is no test suite. `test_rlp_fix.{js,mjs}` are ad-hoc manual scripts run against `dist/` after
@@ -68,8 +68,7 @@ legacy JSON-string quoting); empty referrer encodes as `''`.
   `subscribeAccountBalance`. All multiplex over **one shared graphql-ws socket per
   (hub URL, publicKey)**, refcounted in a module-global map; the last dispose closes the socket.
   Always call the returned dispose function or sockets/refcounts leak.
-- **Misc**: `requestFaucet(address)` — plain `POST /faucet` (no JWT), returns
-  `{ ok: false, error }` instead of throwing; `getGraphqlWsUrl()`.
+- **Misc**: `getGraphqlWsUrl()`.
 
 ## Adding a New Transaction Type
 
