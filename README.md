@@ -27,9 +27,6 @@ import { ClutchHubSdk } from 'clutch-hub-sdk-js';
 // proof-of-key-ownership challenge (the key stays local, it is never sent).
 const sdk = new ClutchHubSdk('http://localhost:3000', publicKey, privateKey);
 
-// Fund test wallet
-await sdk.requestFaucet(publicKey);
-
 // Create, sign, and submit a ride request
 const unsigned = await sdk.createUnsignedRideRequest({
   pickup: { latitude: 35.7, longitude: 51.4 },
@@ -45,7 +42,6 @@ await sdk.submitTransaction(signed.rawTransaction);
 - Client-side signing (private keys never sent to server)
 - Full ride lifecycle: request, offer, accept, pay, cancel
 - GraphQL queries and WebSocket subscriptions
-- Testnet faucet helper
 - TypeScript types
 
 ## API methods
@@ -56,7 +52,6 @@ await sdk.submitTransaction(signed.rawTransaction);
 | Write | `createUnsignedRide*`, `signTransaction`, `submitTransaction` |
 | Read | `listRideRequests`, `listRideOffers`, `listActiveTrips`, `getAccountBalance`, … |
 | Live | `subscribeRideRequests`, `subscribeRideOffers`, `subscribeActiveTrips`, … |
-| Faucet | `requestFaucet(recipientAddress)` |
 
 Full reference: https://docs.clutchprotocol.io/clutch-hub-sdk-js/api-reference
 
